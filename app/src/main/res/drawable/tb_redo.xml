@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung Notes toolbar icon 'comp_common_toolbar_ic_redo'. Recoloured to black; tinted at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+<path android:pathData="M5.09,17.999C5.09,16.333 5.09,14.666 5.09,12.999C5.09,11.895 5.985,10.999 7.09,10.999L12.639,10.999L12.639,10.999L17.5,10.999" android:strokeColor="#FF000000" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillType="evenOdd" />
+<path android:pathData="M13.85,15.949l4.95,-4.95l-4.95,-4.95" android:strokeColor="#FF000000" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillType="evenOdd" />
+</vector>

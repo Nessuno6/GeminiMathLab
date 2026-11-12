@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App icon foreground: the Samsung Notes page with √x and the Galaxy AI badge on top. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/launcher_notes_page" />
+    <item android:drawable="@drawable/launcher_math_overlay" />
+</layer-list>

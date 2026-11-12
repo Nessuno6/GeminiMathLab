@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung Notes pen colour band icon 'pen_selected'. Recoloured to black; tinted at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="36dp" android:height="84dp" android:viewportWidth="36" android:viewportHeight="84">
+<path android:pathData="M9,41C9,41 27,41 27,41C27,41 27,46 27,46C27.55,46 28,46.45 28,47C28,47 28,84 28,84C28,84 8,84 8,84C8,84 8,47 8,47C8,46.45 8.45,46 9,46C9,46 9,41 9,41z" android:fillColor="#FF000000" />
+<path android:pathData="M18,2C18,2 18,2 18,2C18.54,2 19,2.61 19.13,3.49C19.13,3.49 19.5,6 19.5,6C19.5,6 16.5,6 16.5,6C16.5,6 16.87,3.49 16.87,3.49C17,2.61 17.46,2 18,2z" android:fillColor="#FF000000" />
+</vector>

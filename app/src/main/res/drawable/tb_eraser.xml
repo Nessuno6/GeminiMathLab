@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung Notes toolbar icon 'comp_hw_toolbar_ic_eraser'. Recoloured to black; tinted at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+<path android:pathData="M12.842,18.052L18.897,11.998C19.678,11.217 19.678,9.951 18.897,9.17C18.897,9.17 18.897,9.17 18.897,9.17L14.83,5.105C14.049,4.324 12.783,4.325 12.002,5.105L6.096,11.01L6.096,11.01C4.295,12.81 4.004,15.735 5.626,17.698C7.486,19.949 10.826,20.068 12.842,18.052Z" android:strokeColor="#FF000000" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillType="evenOdd" />
+<path android:pathData="M13.743,17.151L6.849,10.257" android:strokeColor="#FF000000" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillType="evenOdd" />
+</vector>

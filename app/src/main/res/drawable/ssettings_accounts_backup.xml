@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung Settings icon 'ic_settings_accounts_and_backup_filled'. Recoloured to black; tinted at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+<path android:pathData="M8,10l-1.41,1.41L9.17,14L2,14v2h7.17l-2.58,2.59L8,20l5,-5zM16,15l1.41,-1.41L14.83,11L22,11L22,9h-7.17l2.58,-2.59L16,5l-5,5z" android:fillColor="#FF000000" />
+</vector>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung Notes icon (cut), extracted from the Samsung Notes APK on the user's device. Tinted at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M9.734,17.048C9.734,18.541 8.506,19.75 6.992,19.75C5.477,19.75 4.25,18.541 4.25,17.048C4.25,15.556 5.477,14.347 6.992,14.347C8.506,14.347 9.734,15.556 9.734,17.048ZM14.265,17.048C14.265,18.541 15.493,19.75 17.007,19.75C18.522,19.75 19.749,18.541 19.749,17.048C19.749,15.556 18.522,14.347 17.007,14.347C15.493,14.347 14.265,15.556 14.265,17.048ZM9.294,18.518L17.512,4.25M14.704,18.518L6.486,4.25" android:strokeColor="#FF000000" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillType="evenOdd" />
+</vector>

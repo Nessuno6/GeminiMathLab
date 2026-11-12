@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung Notes toolbar icon 'comp_hw_toolbar_ic_shape'. Recoloured to black; tinted at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+<path android:pathData="M9.812,14.761C9.812,11.993 12.057,9.749 14.826,9.749C17.594,9.749 19.839,11.993 19.839,14.761C19.839,17.53 17.594,19.775 14.826,19.775C12.057,19.775 9.812,17.53 9.812,14.761ZM14.083,9.799L11.371,5.105C10.698,3.938 9.015,3.938 8.34,5.105L4.397,11.936C3.724,13.103 4.565,14.561 5.912,14.561L9.776,14.561" android:strokeColor="#FF000000" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillType="evenOdd" />
+</vector>

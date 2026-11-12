@@ -1,0 +1,11 @@
+{
+  "auth": {
+    "providers": {
+      "anonymous": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "Gemini Math Lab",
+        "supportEmail": "deangelisfrancesco17@gmail.com"
+      }
+    }
+  }
+}

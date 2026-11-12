@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung Notes toolbar icon 'comp_hw_toolbar_ic_laser_pen_color'. Original colours. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+<path android:pathData="M7.982,11.942L15.76,4.164C16.542,3.383 17.807,3.383 18.589,4.164L20.357,5.932C21.138,6.713 21.138,7.979 20.357,8.76L12.578,16.539L12.578,16.539L7.982,11.942Z" android:fillColor="#FFFFFFFF" android:fillType="evenOdd" />
+<group>
+<clip-path android:pathData="M7.982,11.942L15.76,4.164C16.542,3.383 17.807,3.383 18.589,4.164L20.357,5.932C21.138,6.713 21.138,7.979 20.357,8.76L12.578,16.539L12.578,16.539L7.982,11.942Z" />
+<path android:pathData="M4.27,12.601L15.584,1.288C16.365,0.506 17.631,0.506 18.412,1.288L24.069,6.945C24.85,7.726 24.85,8.992 24.069,9.773L12.755,21.087L12.755,21.087L4.27,12.601Z" android:fillType="evenOdd">
+  <aapt:attr name="android:fillColor">
+    <gradient android:type="linear" android:startX="4" android:startY="20" android:endX="20" android:endY="4">
+      <item android:offset="0" android:color="#FF34C759" />
+      <item android:offset="0.5" android:color="#FF2FB8E8" />
+      <item android:offset="1" android:color="#FF5A7BFF" />
+    </gradient>
+  </aapt:attr>
+</path>
+
+</group>
+</vector>

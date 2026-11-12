@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung Notes icon 'ic_notes'. Recoloured to black; tinted at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="34" android:viewportHeight="34">
+<path android:pathData="M23.692,5.304C25.254,5.304 26.521,6.571 26.521,8.133V25.814C26.521,27.376 25.254,28.643 23.692,28.643H10.255C8.692,28.643 7.426,27.376 7.426,25.814L7.426,23.48H10.679C11.265,23.48 11.74,23.005 11.74,22.419C11.74,21.833 11.265,21.358 10.679,21.358H7.426V18.034H10.679C11.265,18.034 11.74,17.559 11.74,16.973C11.74,16.387 11.265,15.912 10.679,15.912H7.426V12.589H10.679C11.265,12.589 11.74,12.114 11.74,11.528C11.74,10.942 11.265,10.467 10.679,10.467H7.426L7.426,8.133C7.426,6.571 8.692,5.304 10.255,5.304H23.692Z" android:fillColor="#FF000000" />
+</vector>

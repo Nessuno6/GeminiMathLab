@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 'pen_eraser' from the One UI Design Kit (Community) Figma file. Tinted at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M15.1909 4.33407L15.3249 4.45937L19.498 8.63187C20.5005 9.63407 20.5423 11.2334 19.6234 12.2853L19.4981 12.4193L13.2843 18.633C11.0861 20.8312 7.5219 20.8312 5.3237 18.633C3.1849 16.4942 3.1271 13.0623 5.1503 10.8535L5.3237 10.6723L11.538 4.45927C12.5404 3.45717 14.1391 3.41547 15.1909 4.33407ZM6.69 11.0731L6.2076 11.5563C4.4975 13.2663 4.4975 16.0391 6.2076 17.7491C7.8625 19.404 10.5126 19.4574 12.2317 17.9093L12.4004 17.7491L12.883 17.2661L6.69 11.0731Z" android:fillColor="#FF000000" />
+</vector>

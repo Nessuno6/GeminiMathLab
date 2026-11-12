@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung Notes toolbar icon 'comp_hw_toolbar_ic_assistance'. Recoloured to black; tinted at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+<path android:pathData="M8.149,10.182L6.134,12.198C5.29,13.042 3.259,17.21 4.576,18.528C5.402,19.354 7.344,18.866 8.889,18.178M4.352,18.718L3.549,19.52M6.481,11.851L14.26,4.073C15.039,3.292 16.306,3.292 17.087,4.073L19.031,6.018C19.598,6.584 19.753,7.406 19.498,8.113C19.478,8.169 19.455,8.225 19.429,8.28" android:strokeColor="#FF000000" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillType="evenOdd" />
+<path android:pathData="M15.639,11.416C17.452,11.239 19.296,12.125 20.278,13.825C21.61,16.131 20.847,19.065 18.575,20.377C16.303,21.688 13.382,20.881 12.051,18.575C10.923,16.621 11.296,14.219 12.817,12.731" android:strokeColor="#FF000000" android:strokeWidth="1.2" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillType="evenOdd" />
+<path android:pathData="M16.577,9.736l-1.768,1.768l1.768,1.768" android:strokeColor="#FF000000" android:strokeWidth="1.2" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillType="evenOdd" />
+<path android:pathData="M15.71,16.871L16.201,16.871L16.691,16.871L16.202,15.312L15.71,16.871ZM14.369,18.419L15.826,14.269L16.573,14.269L18.038,18.419L17.177,18.419L16.909,17.564L15.492,17.564L15.223,18.419L14.369,18.419Z" android:fillColor="#FF000000" android:fillType="evenOdd" />
+</vector>
