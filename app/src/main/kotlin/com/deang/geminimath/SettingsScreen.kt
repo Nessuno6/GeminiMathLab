@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -677,6 +679,7 @@ private fun AboutSection(appVersion: String, modelStatus: String, nanoStatus: St
     RowDivider()
     InfoRow("Version", appVersion)
   }
+  UpdatesGroup()
   Group(title = "Solving") {
     FeatureRow("Solve", "Tap ✦ Solve to read the line you wrote last, or circle any part with the lasso first. It handles equations, inequalities, integrals, limits, sums, functions and piecewise functions, with each step explained.")
     RowDivider()
@@ -731,6 +734,43 @@ private fun AboutSection(appVersion: String, modelStatus: String, nanoStatus: St
       fontSize = 14.sp, color = S.secondaryText,
       modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)
     )
+  }
+}
+
+/** About › Updates: check GitHub for a new version now, and whether to check by itself. */
+@Composable
+private fun UpdatesGroup() {
+  val ctx = androidx.compose.ui.platform.LocalContext.current
+  val scope = rememberCoroutineScope()
+  var auto by remember { mutableStateOf(AppUpdater.autoCheck(ctx)) }
+  val status = when (val s = AppUpdater.state) {
+    AppUpdater.State.Checking -> "Checking…"
+    AppUpdater.State.UpToDate -> "You have the latest version"
+    is AppUpdater.State.Available -> "Version ${s.release.version} is available"
+    is AppUpdater.State.Downloading -> "Downloading ${s.release.version}… ${(s.progress * 100).toInt()}%"
+    is AppUpdater.State.Installing -> "Installing ${s.release.version}…"
+    is AppUpdater.State.Failed -> s.message
+    AppUpdater.State.Idle -> "New versions come from github.com/${AppUpdater.REPO}"
+  }
+  Group(title = "Updates") {
+    Row(
+      Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Column(Modifier.weight(1f)) {
+        Text("Check for updates", fontSize = 16.sp, color = S.primaryText)
+        Text(status, fontSize = 13.sp, color = S.secondaryText)
+      }
+      val available = AppUpdater.state as? AppUpdater.State.Available
+      TextButton(
+        enabled = AppUpdater.state !is AppUpdater.State.Checking && AppUpdater.state !is AppUpdater.State.Downloading,
+        onClick = { if (available != null) AppUpdater.dialogOpen = true else scope.launch { AppUpdater.check(ctx) } }
+      ) { Text(if (available != null) "Update" else "Check") }
+    }
+    RowDivider()
+    SwitchRow("Check automatically", "Once a day when the app opens", checked = auto, onChange = {
+      auto = it; AppUpdater.setAutoCheck(ctx, it)
+    })
   }
 }
 

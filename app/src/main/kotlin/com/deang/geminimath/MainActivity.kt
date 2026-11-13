@@ -165,6 +165,8 @@ class MainActivity : ComponentActivity() {
       ) {
         Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFEDEDED)) {
           MyScriptExactReplicaApp()
+          // A new version on GitHub Releases: the update dialog (and the once-a-day check)
+          UpdatePrompt()
         }
       }
     }

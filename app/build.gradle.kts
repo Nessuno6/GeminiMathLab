@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
@@ -11,15 +13,31 @@ android {
     applicationId = "com.deang.geminimath"
     minSdk = 31
     targetSdk = 37
+    // A release: raise both, then tag it v<versionName> on GitHub (see README); the app's updater
+    // compares versionName with the release tag
     versionCode = 1
-    versionName = "1.0"
+    versionName = "1.0.0"
     // 64-bit only: every Android 17 phone, tablet and Googlebook is 64-bit, and the OCR runtime is
     // large, so the 32-bit and x86 copies only made the APK bigger
     ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
   }
 
+  // Release signing from keystore.properties in the project folder (kept out of git)
+  val signing = rootProject.file("keystore.properties").takeIf { it.exists() }?.let { f ->
+    Properties().apply { f.inputStream().use { load(it) } }
+  }
+  signingConfigs {
+    if (signing != null) create("release") {
+      storeFile = file(signing.getProperty("storeFile"))
+      storePassword = signing.getProperty("storePassword")
+      keyAlias = signing.getProperty("keyAlias")
+      keyPassword = signing.getProperty("keyPassword")
+    }
+  }
+
   buildTypes {
     release {
+      if (signing != null) signingConfig = signingConfigs.getByName("release")
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
