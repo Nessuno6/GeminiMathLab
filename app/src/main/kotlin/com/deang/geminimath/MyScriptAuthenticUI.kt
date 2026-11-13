@@ -85,7 +85,7 @@ object MyScriptIcons {
 
   @Composable
   fun PadlockIcon(color: Color = Color(0xFF1F1F1F), size: Dp = 17.dp) =
-    KitIcon(R.drawable.oneui_lock_outline, color, kit(size))
+    KitIcon(R.drawable.oneui_lock, color, kit(size))
 
   @Composable
   fun CopyIcon(color: Color = Color.White, size: Dp = 18.dp) =
@@ -119,7 +119,7 @@ object MyScriptIcons {
   // From Samsung Notes (snotes_*) and Samsung Settings (ssettings_*), extracted on the user's device.
 
   @Composable fun CloseX(color: Color = Color(0xFF1F1F1F), size: Dp = 20.dp) = KitIcon(R.drawable.snotes_close, color, kit(size))
-  @Composable fun SettingsGear(color: Color = Color(0xFF1F1F1F), size: Dp = 20.dp) = KitIcon(R.drawable.snotes_settings, color, kit(size))
+  @Composable fun SettingsGear(color: Color = Color(0xFF1F1F1F), size: Dp = 20.dp) = KitIcon(R.drawable.oneui_settings, color, kit(size))
   @Composable fun Plus(color: Color = Color(0xFF1F1F1F), size: Dp = 20.dp) = KitIcon(R.drawable.snotes_add, color, kit(size))
   /** A minus sign drawn to match Samsung's plus icon (Samsung's "remove" icon is a bin). */
   @Composable fun Minus(color: Color = Color(0xFF1F1F1F), size: Dp = 20.dp) =
@@ -144,7 +144,8 @@ object MyScriptIcons {
   @Composable fun MathFormula(color: Color = Color(0xFF1F1F1F), size: Dp = 18.dp) = KitIcon(R.drawable.snotes_math, color, kit(size))
   @Composable fun Info(color: Color = Color(0xFF1F1F1F), size: Dp = 18.dp) = KitIcon(R.drawable.ssettings_info, color, kit(size))
   @Composable fun AccountsBackup(color: Color = Color(0xFF1F1F1F), size: Dp = 18.dp) = KitIcon(R.drawable.ssettings_accounts_backup, color, kit(size))
-  @Composable fun Theme(color: Color = Color(0xFF1F1F1F), size: Dp = 18.dp) = KitIcon(R.drawable.ssettings_theme, color, kit(size))
+  @Composable fun SPen(color: Color = Color(0xFF1F1F1F), size: Dp = 18.dp) = KitIcon(R.drawable.oneui_spen, color, kit(size))
+  @Composable fun Theme(color: Color = Color(0xFF1F1F1F), size: Dp = 18.dp) = KitIcon(R.drawable.oneui_theme, color, kit(size))
 
   /** Draws the icon for a key; used by places that store an icon id instead of a composable. */
   @Composable
@@ -155,7 +156,7 @@ object MyScriptIcons {
       "latex" -> MathFormula(color, size)
       "cloud" -> Cloud(color, size)
       "account" -> Cloud(color, size)
-      "pen" -> EditPencil(color, size)
+      "pen" -> SPen(color, size)
       "math" -> MathFormula(color, size)
       "assistant" -> RobotIcon(color, size)
       "appearance" -> Theme(color, size)

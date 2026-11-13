@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 'lock_outline' from the One UI Design Kit (Community) Figma file. Tinted at runtime. -->
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:pathData="M13.5356 14.1849C13.5356 14.8849 12.9596 15.4519 12.2496 15.4519C11.5396 15.4519 10.9646 14.8849 10.9646 14.1849C10.9646 13.4849 11.5396 12.9189 12.2496 12.9189C12.9596 12.9189 13.5356 13.4849 13.5356 14.1849Z" android:fillColor="#FF000000" />
-    <path android:pathData="M12.25 14.952V17.329M8.582 9.24976V7.00676C8.582 4.93176 10.224 3.24976 12.249 3.24976C14.275 3.24976 15.917 4.93176 15.917 7.00676V9.24976M16.75 20.6903H7.75C6.646 20.6903 5.75 19.7943 5.75 18.6903V11.9633C5.75 10.8583 6.646 9.96326 7.75 9.96326H16.75C17.854 9.96326 18.75 10.8583 18.75 11.9633V18.6903C18.75 19.7943 17.854 20.6903 16.75 20.6903Z" android:strokeColor="#FF000000" android:strokeWidth="1.5" android:strokeLineCap="round" android:strokeLineJoin="round" />
-</vector>

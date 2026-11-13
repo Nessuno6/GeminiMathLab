@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -32,6 +33,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -245,25 +247,10 @@ object AiAssistant {
   }
 }
 
-/** A small robot (the assistant's button). */
+/** The AI assistant icon (the assistant's button). */
 @Composable
 fun RobotIcon(color: Color, size: Dp = 20.dp) {
-  Canvas(Modifier.size(size)) {
-    val s = this.size.width
-    val sw = s * 0.08f
-    // Antenna
-    drawLine(color, Offset(s / 2, s * 0.08f), Offset(s / 2, s * 0.24f), sw, StrokeCap.Round)
-    drawCircle(color, s * 0.06f, Offset(s / 2, s * 0.08f))
-    // Head
-    drawRoundRect(color, Offset(s * 0.16f, s * 0.26f), Size(s * 0.68f, s * 0.56f), CornerRadius(s * 0.16f), style = Stroke(width = sw))
-    // Ears
-    drawLine(color, Offset(s * 0.06f, s * 0.48f), Offset(s * 0.06f, s * 0.62f), sw, StrokeCap.Round)
-    drawLine(color, Offset(s * 0.94f, s * 0.48f), Offset(s * 0.94f, s * 0.62f), sw, StrokeCap.Round)
-    // Eyes and mouth
-    drawCircle(color, s * 0.065f, Offset(s * 0.37f, s * 0.48f))
-    drawCircle(color, s * 0.065f, Offset(s * 0.63f, s * 0.48f))
-    drawLine(color, Offset(s * 0.38f, s * 0.66f), Offset(s * 0.62f, s * 0.66f), sw, StrokeCap.Round)
-  }
+  Icon(painterResource(R.drawable.oneui_ai_assistant), contentDescription = null, tint = color, modifier = Modifier.size(size * 1.15f))
 }
 
 /**
@@ -305,7 +292,7 @@ fun AssistantPanel(
         }
         Spacer(Modifier.width(6.dp))
         Box(Modifier.size(34.dp).clip(CircleShape).clickable(onClick = onClose).semantics { contentDescription = "Close assistant" }, contentAlignment = Alignment.Center) {
-          Text("✕", fontSize = 15.sp, color = EditorChrome.secondaryText)
+          MyScriptIcons.CloseX(color = EditorChrome.secondaryText, size = 15.dp)
         }
       }
       Spacer(Modifier.height(8.dp))
@@ -372,7 +359,7 @@ fun AssistantPanel(
           Modifier.size(46.dp).clip(CircleShape).background(if (draft.isBlank() || busy) Color(0xFFB8C6E8) else OneUi9Tokens.SamsungBlue)
             .clickable(enabled = draft.isNotBlank() && !busy) { send() }.semantics { contentDescription = "Send" },
           contentAlignment = Alignment.Center
-        ) { Text("↑", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+        ) { Icon(painterResource(R.drawable.oneui_send), contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp)) }
       }
       if (turns.isNotEmpty()) {
         Text(

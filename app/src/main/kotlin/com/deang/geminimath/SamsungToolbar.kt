@@ -141,7 +141,7 @@ fun highlighterInk(penColor: Long): Long =
 @Composable
 fun NoteToolIcon(tool: NoteTool, state: ToolbarState, size: Dp = 22.dp) {
   when (tool) {
-    NoteTool.KEYBOARD -> TbIcon(R.drawable.tb_keyboard, size)
+    NoteTool.KEYBOARD -> TbIcon(R.drawable.oneui_keyboard, size)
     // Samsung's illustrations have grey outlines: light versions are used on dark bars
     NoteTool.PEN -> TintedPen(if (EditorChrome.dark) R.drawable.tb_pen_dark else R.drawable.tb_pen, R.drawable.tb_pen_tip, Color(state.penColor), size)
     // The highlighter's tip shows the colour it writes in (its own, as in Samsung Notes)

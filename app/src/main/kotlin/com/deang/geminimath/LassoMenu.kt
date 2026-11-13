@@ -105,10 +105,7 @@ fun LassoActionMenu(selection: Rect, actions: LassoActions) {
             Modifier.size(34.dp).clip(CircleShape).clickable { more = true }.semantics { contentDescription = "More options" },
             contentAlignment = Alignment.Center
           ) {
-            val c = EditorChrome.text
-            Canvas(Modifier.size(3.5.dp, 16.dp)) {
-              for (i in 0..2) drawCircle(c, radius = size.width / 2f * 1.05f, center = Offset(size.width / 2f, size.height * (0.12f + 0.38f * i)))
-            }
+            MyScriptIcons.MoreVerticalDots(EditorChrome.text, 18.dp)
           }
           // Samsung's ⋮ list, then this app's extras
           DropdownMenu(

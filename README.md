@@ -61,7 +61,7 @@ the app and keeps your notes.
   with Android Handoff.
 
 **Assistant (optional, your own key)**
-- The robot button at the end of the toolbar answers questions about the open page using Claude or
+- The AI assistant button at the end of the toolbar answers questions about the open page using Claude or
   Gemini. Add your API key in **Settings › AI assistant**; keys are stored encrypted on the device and sent
   only to that provider. Each question sends a picture of the page.
 

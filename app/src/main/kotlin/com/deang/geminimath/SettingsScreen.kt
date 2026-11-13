@@ -577,7 +577,7 @@ private fun WritingSection(settings: AppSettings) {
 private fun AiSection(settings: AppSettings) {
   val ctx = androidx.compose.ui.platform.LocalContext.current
   var keysChanged by remember { mutableStateOf(0) }
-  Group(title = "Assistant", footer = "Ask questions about the open page with the robot button at the end of the toolbar. Each question sends a picture of the page to the AI you choose.") {
+  Group(title = "Assistant", footer = "Ask questions about the open page with the AI assistant button at the end of the toolbar. Each question sends a picture of the page to the AI you choose.") {
     ChoiceRow("Answers from", null, AiProvider.entries.map { it.label }, settings.aiProvider.ordinal) { settings.aiProvider = AiProvider.entries[it] }
   }
   @Composable

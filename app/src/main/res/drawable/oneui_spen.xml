@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One UI system icon 'list_ic_spen' (from oneui_svg_icons). Tinted at runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillType="evenOdd"
+        android:pathData="M17.06,3.382L17.06,3.382L3.706,16.737C3.598,16.844 1.813,21.735 1.813,21.735C1.728,22.006 1.994,22.273 2.265,22.187C2.265,22.187 7.156,20.402 7.263,20.294L20.617,6.94L20.829,6.729L21.98,5.577C22.542,5.015 22.542,4.105 21.98,3.544L20.456,2.019C19.894,1.458 18.984,1.458 18.423,2.019L17.06,3.382Z"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.5" />
+    <path
+        android:fillType="evenOdd"
+        android:pathData="M11.5,12.5L7.752,16.248"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.5" />
+</vector>

@@ -14,8 +14,8 @@ android {
     targetSdk = 37
     // A release: raise both, then tag it v<versionName> on GitHub (see README); the app's updater
     // compares versionName with the release tag
-    versionCode = 2
-    versionName = "1.1.0"
+    versionCode = 3
+    versionName = "1.2.0"
     // 64-bit only: every Android 17 phone, tablet and Googlebook is 64-bit, and the OCR runtime is
     // large, so the 32-bit and x86 copies only made the APK bigger
     ndk { abiFilters += listOf("arm64-v8a", "x86_64") }

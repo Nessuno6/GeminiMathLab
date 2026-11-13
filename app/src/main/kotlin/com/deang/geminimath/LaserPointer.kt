@@ -145,7 +145,7 @@ fun LaserSettingsPanel(color: Long, onColor: (Long) -> Unit, onClose: () -> Unit
     Row(verticalAlignment = Alignment.CenterVertically) {
       Text("Laser pointer", fontSize = 18.sp, color = EditorChrome.text, modifier = Modifier.weight(1f))
       Box(Modifier.size(36.dp).clip(CircleShape).clickable(onClick = onClose).semantics { contentDescription = "Close" }, contentAlignment = Alignment.Center) {
-        Text("✕", fontSize = 16.sp, color = EditorChrome.secondaryText)
+        MyScriptIcons.CloseX(color = EditorChrome.secondaryText, size = 16.dp)
       }
     }
     Spacer(Modifier.height(10.dp))
