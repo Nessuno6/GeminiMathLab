@@ -141,7 +141,7 @@ object NoteImportExport {
         return "pictures/" + f.name
       }
       val portable = note.copy(
-        backgroundImagePath = note.backgroundImagePath?.let { pack(it) },
+        backgroundImagePath = BackgroundPages.join(BackgroundPages.paths(note.backgroundImagePath).map { pack(it) }),
         strokes = note.strokes.map { s -> s.picture?.let { s.copy(picture = NotePicture(pack(it.path))) } ?: s }
       )
       put("meta.json", JSONObject().put("format", "gmnote").put("version", 1).put("generator", "Gemini Math Lab")
@@ -171,7 +171,9 @@ object NoteImportExport {
       val f = File(imagesDir(context), UUID.randomUUID().toString() + "." + name.substringAfterLast('.', "jpg"))
       f.writeBytes(data); f.absolutePath
     }
-    json.optString("backgroundImagePath").takeIf { it.isNotEmpty() }?.let { json.put("backgroundImagePath", renamed[it] ?: JSONObject.NULL) }
+    json.optString("backgroundImagePath").takeIf { it.isNotEmpty() }?.let { raw ->
+      json.put("backgroundImagePath", BackgroundPages.join(BackgroundPages.paths(raw).mapNotNull { renamed[it] }) ?: JSONObject.NULL)
+    }
     json.optJSONArray("strokes")?.let { arr ->
       for (i in 0 until arr.length()) {
         val s = arr.getJSONObject(i)
@@ -194,10 +196,10 @@ object NoteImportExport {
 
   fun buildSvg(note: MathNote): String {
     val ink = inkBounds(note)
-    val bg = note.backgroundImagePath?.let { p -> File(p).takeIf { it.exists() } }
-    val bgBmp = bg?.let { runCatching { BitmapFactory.decodeFile(it.absolutePath) }.getOrNull() }
+    val bgPages = BackgroundPages.layout(note.backgroundImagePath)
+    val bgBox = BackgroundPages.bounds(bgPages)
     val region = when {
-      bgBmp != null -> RectF(BG_X, BG_Y, BG_X + bgBmp.width, BG_Y + bgBmp.height).also { r -> ink?.let { r.union(it) } }
+      bgBox != null -> RectF(bgBox).also { r -> ink?.let { r.union(it) } }
       ink != null -> RectF(ink)
       else -> RectF(0f, 0f, 800f, 600f)
     }.apply { inset(-40f, -40f) }
@@ -208,8 +210,9 @@ object NoteImportExport {
     sb.append("""<rect x="${n(region.left)}" y="${n(region.top)}" width="${n(region.width())}" height="${n(region.height())}" fill="${hex(note.paperColor.argb)}"/>""").append('\n')
     fun dataUri(f: File) = "data:image/" + (if (f.name.endsWith(".png", true)) "png" else "jpeg") + ";base64," +
       android.util.Base64.encodeToString(f.readBytes(), android.util.Base64.NO_WRAP)
-    if (bg != null && bgBmp != null) {
-      sb.append("""<image x="${n(BG_X)}" y="${n(BG_Y)}" width="${bgBmp.width}" height="${bgBmp.height}" xlink:href="${dataUri(bg)}"/>""").append('\n')
+    for (pg in bgPages) {
+      val r = pg.rect
+      sb.append("""<image x="${n(r.left)}" y="${n(r.top)}" width="${n(r.width())}" height="${n(r.height())}" xlink:href="${dataUri(File(pg.path))}"/>""").append('\n')
     }
     val layerIds = note.layers.map { it.id }.toSet()
     for (layer in note.layers) {
@@ -304,9 +307,10 @@ object NoteImportExport {
       // Strip local-only image path from the portable copy, embed the image instead
       val portable = note.copy(backgroundImagePath = null)
       put("geminimath/note.json", NotesRepository.serializeNoteJson(portable).toString().toByteArray())
-      note.backgroundImagePath?.let { path ->
+      // First page as background.png (what older versions read), further pages as background_2.png, …
+      BackgroundPages.paths(note.backgroundImagePath).forEachIndexed { i, path ->
         val f = File(path)
-        if (f.exists()) put("geminimath/background.png", f.readBytes())
+        if (f.exists()) put(if (i == 0) "geminimath/background.png" else "geminimath/background_${i + 1}.png", f.readBytes())
       }
     }
     return bos.toByteArray()
@@ -359,12 +363,13 @@ object NoteImportExport {
 
   /** Renders the note (background image + ink) to a white bitmap. */
   fun renderNoteBitmap(note: MathNote, maxSide: Int = 2400): Bitmap {
-    val bg = note.backgroundImagePath?.let { runCatching { BitmapFactory.decodeFile(it) }.getOrNull() }
+    val bgPages = BackgroundPages.layout(note.backgroundImagePath)
+    val bgBox = BackgroundPages.bounds(bgPages)
     val ink = inkBounds(note)
     // Canvas region in note coordinates
     val region = when {
-      bg != null -> {
-        val r = RectF(BG_X, BG_Y, BG_X + bg.width, BG_Y + bg.height)
+      bgBox != null -> {
+        val r = RectF(bgBox)
         ink?.let { r.union(it) }
         r
       }
@@ -381,9 +386,7 @@ object NoteImportExport {
     canvas.drawColor(AndroidColor.WHITE)
     val dx = -region.left * scale
     val dy = -region.top * scale
-    bg?.let {
-      canvas.drawBitmap(it, null, RectF(dx + BG_X * scale, dy + BG_Y * scale, dx + (BG_X + it.width) * scale, dy + (BG_Y + it.height) * scale), null)
-    }
+    BackgroundPages.drawAll(canvas, bgPages, scale, dx, dy)
     drawInk(canvas, note, scale, dx, dy)
     return bmp
   }
@@ -400,10 +403,11 @@ object NoteImportExport {
     val margin = 36f
     var pageNo = 1
     notes.forEach { note ->
-      val bg = note.backgroundImagePath?.let { runCatching { BitmapFactory.decodeFile(it) }.getOrNull() }
+      val bgPages = BackgroundPages.layout(note.backgroundImagePath)
+      val bgBox = BackgroundPages.bounds(bgPages)
       val ink = inkBounds(note)
       val region = when {
-        bg != null -> RectF(BG_X, BG_Y, BG_X + bg.width, BG_Y + bg.height).also { r -> ink?.let { r.union(it) } }
+        bgBox != null -> RectF(bgBox).also { r -> ink?.let { r.union(it) } }
         ink != null -> RectF(ink.left - 20f, ink.top - 20f, ink.right + 20f, ink.bottom + 20f)
         else -> null
       }
@@ -429,7 +433,7 @@ object NoteImportExport {
           // This page shows the part of the note starting at (col × page width, row × page height)
           val dx = avail.left - region.left * scale - col * availW
           val dy = avail.top - region.top * scale - row * availH
-          bg?.let { c.drawBitmap(it, null, RectF(dx + BG_X * scale, dy + BG_Y * scale, dx + (BG_X + it.width) * scale, dy + (BG_Y + it.height) * scale), null) }
+          BackgroundPages.drawAll(c, bgPages, scale, dx, dy, clip = avail)
           drawInk(c, note, scale, dx, dy)
           c.restore()
         }
@@ -507,28 +511,36 @@ object NoteImportExport {
     }
   }
 
-  private fun importPdf(context: Context, uri: Uri, baseTitle: String, folderId: String?): List<MathNote> {
-    val pfd: ParcelFileDescriptor = context.contentResolver.openFileDescriptor(uri, "r")
-      ?: error("Cannot open PDF")
-    val result = mutableListOf<MathNote>()
+  /** Most PDF pages imported into one note (each is a ~1400 px picture on disk). */
+  const val MAX_PDF_PAGES = 60
+
+  /**
+   * Renders every page of a PDF (up to [MAX_PDF_PAGES]) to pictures in app storage, in order.
+   * Pages are rendered and saved one at a time so only one is ever in memory.
+   */
+  fun renderPdfPages(context: Context, uri: Uri, maxPages: Int = MAX_PDF_PAGES): List<String> {
+    val pfd: ParcelFileDescriptor = context.contentResolver.openFileDescriptor(uri, "r") ?: error("Cannot open PDF")
+    val paths = ArrayList<String>()
     pfd.use { fd ->
       PdfRenderer(fd).use { renderer ->
-        val count = minOf(renderer.pageCount, 60)
+        val count = minOf(renderer.pageCount, maxPages)
         for (i in 0 until count) {
           renderer.openPage(i).use { page ->
-            val targetW = 1400
-            val targetH = (targetW.toFloat() * page.height / page.width).toInt()
-            val bmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
-            bmp.eraseColor(AndroidColor.WHITE)
-            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            val title = if (count > 1) "$baseTitle – p.${i + 1}" else baseTitle
-            result += newNote(title, folderId).copy(backgroundImagePath = saveBitmap(context, bmp))
+            val bmp = renderPdfPage(page)
+            paths += saveBitmap(context, bmp)
+            bmp.recycle()
           }
         }
       }
     }
-    if (result.isEmpty()) error("PDF has no pages")
-    return result
+    if (paths.isEmpty()) error("PDF has no pages")
+    return paths
+  }
+
+  /** A PDF becomes one note with all its pages stacked down the canvas, to write on like a worksheet. */
+  private fun importPdf(context: Context, uri: Uri, baseTitle: String, folderId: String?): List<MathNote> {
+    val paths = renderPdfPages(context, uri)
+    return listOf(newNote(baseTitle, folderId).copy(backgroundImagePath = BackgroundPages.join(paths)))
   }
 
   // Samsung page units → editor pixels. Samsung Notes shows a 1848-unit page about 1.2× on a
@@ -563,27 +575,15 @@ object NoteImportExport {
   }
 
   /**
-   * A page background from a picture (PNG, JPG, WebP) or the first page of a PDF, saved in app
-   * storage. Returns its path, for [MathNote.backgroundImagePath].
+   * A page background from a picture (PNG, JPG, WebP) or every page of a PDF (stacked), saved in
+   * app storage. Returns the value for [MathNote.backgroundImagePath].
    */
   fun backgroundFromUri(context: Context, uri: Uri): String {
     val name = displayName(context, uri)
     val ext = name.substringAfterLast('.', "").lowercase()
     val mime = context.contentResolver.getType(uri).orEmpty()
     if (ext == "pdf" || mime == "application/pdf") {
-      val pfd = context.contentResolver.openFileDescriptor(uri, "r") ?: error("Cannot open PDF")
-      pfd.use { fd ->
-        PdfRenderer(fd).use { renderer ->
-          if (renderer.pageCount == 0) error("PDF has no pages")
-          renderer.openPage(0).use { page ->
-            val targetW = 1400
-            val bmp = Bitmap.createBitmap(targetW, (targetW.toFloat() * page.height / page.width).toInt(), Bitmap.Config.ARGB_8888)
-            bmp.eraseColor(AndroidColor.WHITE)
-            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            return saveBitmap(context, bmp)
-          }
-        }
-      }
+      return BackgroundPages.join(renderPdfPages(context, uri)) ?: error("PDF has no pages")
     }
     val bmp = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
       ?: error("Unsupported file: choose a PNG, JPG, WebP or PDF")
@@ -602,7 +602,7 @@ object NoteImportExport {
     }
 
     var nativeJson: String? = null
-    var bgBytes: ByteArray? = null
+    val bgPagesBytes = java.util.TreeMap<Int, ByteArray>()
     var metaLatex = ""
     val foreignStrokes = mutableListOf<InkStroke>()
     ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
@@ -613,7 +613,9 @@ object NoteImportExport {
           val n = entry.name.lowercase()
           when {
             n == "geminimath/note.json" -> nativeJson = String(data)
-            n == "geminimath/background.png" -> bgBytes = data
+            n == "geminimath/background.png" -> bgPagesBytes[1] = data
+            n.startsWith("geminimath/background_") && n.endsWith(".png") ->
+              n.removePrefix("geminimath/background_").removeSuffix(".png").toIntOrNull()?.let { bgPagesBytes[it] = data }
             n == "meta.json" -> metaLatex = runCatching { JSONObject(String(data)).optString("latex") }.getOrDefault("")
             n.endsWith(".jiix") || n.endsWith(".json") ->
               foreignStrokes += runCatching { extractJiixStrokes(String(data)) }.getOrDefault(emptyList())
@@ -625,7 +627,9 @@ object NoteImportExport {
 
     nativeJson?.let { json ->
       val parsed = NotesRepository.parseNoteJson(json)
-      val bgPath = bgBytes?.let { b -> BitmapFactory.decodeByteArray(b, 0, b.size)?.let { saveBitmap(context, it) } }
+      val bgPath = BackgroundPages.join(bgPagesBytes.values.mapNotNull { b ->
+        BitmapFactory.decodeByteArray(b, 0, b.size)?.let { saveBitmap(context, it) }
+      })
       return parsed.copy(
         id = "note_${UUID.randomUUID().toString().take(8)}",
         updatedAt = System.currentTimeMillis(),

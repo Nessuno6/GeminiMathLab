@@ -1152,41 +1152,70 @@ object Integrator {
       val qa = q[2]; val qb = q[1]; val qc = q[0]
       val m = rem.getOrElse(1) { 0.0 }
       val n = rem[0]
-      // m x + n = (m / 2qa)(2qa x + qb) + (n - m qb / 2qa)
-      val lnCoef = m / (2 * qa)
-      val c2 = n - m * qb / (2 * qa)
+      val disc = qb * qb - 4 * qa * qc
       val qPretty = MathFormat.poly(q)
-      if (lnCoef != 0.0) {
-        parts.add(Result("${MathFormat.plainNumber(lnCoef)}*ln(abs(${MathFormat.polyPlain(q)}))",
-          MathFormat.coefTimes(lnCoef, "ln|$qPretty|"),
-          listOf("The numerator contains the derivative of the denominator: ∫ q'/q dx = ln|q|")))
-      }
-      if (c2 != 0.0) {
-        val disc = qb * qb - 4 * qa * qc
-        when {
-          disc < -1e-12 -> {
-            val s = sqrt(-disc)
-            val arg = Lin(2 * qa / s, qb / s)
-            val k = 2 * c2 / s
-            parts.add(Result("${MathFormat.plainNumber(k)}*arctan(${arg.plain})",
-              MathFormat.coefTimes(k, "arctan(${arg.pretty})"),
-              listOf("Complete the square in $qPretty and use ∫ du/(1 + u²) = arctan(u)")))
+      if (disc > 1e-12 && (abs(m) > 1e-12 || abs(n) > 1e-12)) {
+        // True partial fraction decomposition over distinct real roots r1, r2:
+        // (m*x + n) / (qa*(x - r1)*(x - r2)) = A/(x - r1) + B/(x - r2)
+        val s = sqrt(disc)
+        val r1 = (-qb - s) / (2 * qa)
+        val r2 = (-qb + s) / (2 * qa)
+        val aCoef = (m * r1 + n) / (qa * (r1 - r2))
+        val bCoef = (m * r2 + n) / (qa * (r2 - r1))
+        val l1 = Lin(1.0, -r1)
+        val l2 = Lin(1.0, -r2)
+        val remPretty = MathFormat.poly(doubleArrayOf(n, m))
+        val pfSteps = listOf(
+          "Factor the denominator: $qPretty = ${if (abs(qa - 1.0) < 1e-12) "" else "${MathFormat.num(qa)}·"}(${l1.pretty})(${l2.pretty})",
+          "Decompose into partial fractions: ($remPretty)/($qPretty) = A/(${l1.pretty}) + B/(${l2.pretty}) with A = ${MathFormat.num(aCoef)}, B = ${MathFormat.num(bCoef)}",
+          "Integrate each fraction using ∫ du/u = ln|u|"
+        )
+        if (abs(aCoef + bCoef) < 1e-12) {
+          parts.add(Result(
+            "${MathFormat.plainNumber(aCoef)}*(ln(abs(${l1.plain}))-ln(abs(${l2.plain})))",
+            MathFormat.scaled(aCoef, "ln|${l1.pretty}| - ln|${l2.pretty}|"),
+            pfSteps
+          ))
+        } else {
+          val exprTerms = ArrayList<String>()
+          val prettyTerms = ArrayList<String>()
+          if (abs(aCoef) > 1e-12) {
+            exprTerms += "${MathFormat.plainNumber(aCoef)}*ln(abs(${l1.plain}))"
+            prettyTerms += MathFormat.coefTimes(aCoef, "ln|${l1.pretty}|")
           }
-          abs(disc) <= 1e-12 -> {
-            val root = -qb / (2 * qa)
-            parts.add(powerRule(c2 / qa, Lin(1.0, -root), -2.0))
+          if (abs(bCoef) > 1e-12) {
+            exprTerms += "${MathFormat.plainNumber(bCoef)}*ln(abs(${l2.plain}))"
+            prettyTerms += MathFormat.coefTimes(bCoef, "ln|${l2.pretty}|")
           }
-          else -> {
-            val s = sqrt(disc)
-            val r1 = (-qb - s) / (2 * qa)
-            val r2 = (-qb + s) / (2 * qa)
-            val k = c2 / (qa * (r1 - r2))
-            val l1 = Lin(1.0, -r1)
-            val l2 = Lin(1.0, -r2)
-            parts.add(Result(
-              "${MathFormat.plainNumber(k)}*(ln(abs(${l1.plain}))-ln(abs(${l2.plain})))",
-              MathFormat.scaled(k, "ln|${l1.pretty}| - ln|${l2.pretty}|"),
-              listOf("Split into partial fractions over the roots x = ${MathFormat.num(r1)} and x = ${MathFormat.num(r2)}")))
+          parts.add(Result(
+            exprTerms.joinToString("+"),
+            MathFormat.joinSigned(prettyTerms),
+            pfSteps
+          ))
+        }
+      } else {
+        // m x + n = (m / 2qa)(2qa x + qb) + (n - m qb / 2qa)
+        val lnCoef = m / (2 * qa)
+        val c2 = n - m * qb / (2 * qa)
+        if (lnCoef != 0.0) {
+          parts.add(Result("${MathFormat.plainNumber(lnCoef)}*ln(abs(${MathFormat.polyPlain(q)}))",
+            MathFormat.coefTimes(lnCoef, "ln|$qPretty|"),
+            listOf("The numerator contains the derivative of the denominator: ∫ q'/q dx = ln|q|")))
+        }
+        if (c2 != 0.0) {
+          when {
+            disc < -1e-12 -> {
+              val s = sqrt(-disc)
+              val arg = Lin(2 * qa / s, qb / s)
+              val k = 2 * c2 / s
+              parts.add(Result("${MathFormat.plainNumber(k)}*arctan(${arg.plain})",
+                MathFormat.coefTimes(k, "arctan(${arg.pretty})"),
+                listOf("Complete the square in $qPretty and use ∫ du/(1 + u²) = arctan(u)")))
+            }
+            else -> {
+              val root = -qb / (2 * qa)
+              parts.add(powerRule(c2 / qa, Lin(1.0, -root), -2.0))
+            }
           }
         }
       }

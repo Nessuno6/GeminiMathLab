@@ -1,6 +1,7 @@
 package com.deang.geminimath
 
 import android.graphics.RenderNode
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -12,34 +13,47 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
- * Keeps the finished ink recorded in small groups ("chunks") of strokes, each its own GPU
+ * Keeps the finished ink recorded in small spatial groups ("chunks") of strokes, each its own GPU
  * display list. When a stroke is erased, added or changed, only its chunk is recorded again; the
  * rest of the page is replayed as it is. On a big note (thousands of strokes) re-recording the
  * whole page after every change took long enough to freeze the screen while erasing.
  *
- * Strokes keep the chunk they were first put in (by identity), so removing one never moves the
- * others. Chunks are per layer and per kind (pictures, fills, highlighter, ink, tape), so the
- * drawing order between kinds stays as before.
+ * Strokes are bucketed by 2D spatial grid tiles ([tileSize] × [tileSize] px) per layer and per
+ * kind (pictures, fills, highlighter, ink, tape), so each chunk has a compact bounding box that
+ * the GPU and CPU frustum culling can skip whenever the tile is off screen.
  */
-class StrokeCache(private val chunkSize: Int = 48) {
+class StrokeCache(
+  private val chunkSize: Int = 48,
+  private val tileSize: Float = 1024f
+) {
   private class Chunk(val id: Int) {
     // Clipped to its strokes' box (with room for the widest pen): the GPU skips every chunk that's
     // off screen, so only the strokes you can see are drawn
     val node = RenderNode("ink").apply { setClipToBounds(true) }
     var key: List<Any?> = emptyList()
+    var bounds: Rect = Rect.Zero
   }
 
   private val chunkOf = IdentityHashMap<InkStroke, Chunk>()
-  private val fill = HashMap<String, Chunk>()   // the chunk new strokes of a (layer, kind) go into
+  private val fill = HashMap<String, Chunk>()   // the chunk new strokes of a (layer, kind, tile) go into
   private val count = HashMap<Chunk, Int>()
   private val chunks = ArrayList<Chunk>()
   private var nextId = 0
 
+  /** Spatial bucket key for [s] inside [group] so distant strokes never bloat one RenderNode's bounds. */
+  internal fun spatialBucketKey(s: InkStroke, group: String): String {
+    val p = s.points.firstOrNull() ?: return group
+    val tx = floor(p.x / tileSize).toInt()
+    val ty = floor(p.y / tileSize).toInt()
+    return "$group:$tx,$ty"
+  }
+
   private fun assign(s: InkStroke, group: String): Chunk {
     chunkOf[s]?.let { return it }
-    var c = fill[group]
+    val bucket = spatialBucketKey(s, group)
+    var c = fill[bucket]
     if (c == null || (count[c] ?: 0) >= chunkSize) {
-      c = Chunk(nextId++); chunks += c; fill[group] = c
+      c = Chunk(nextId++); chunks += c; fill[bucket] = c
     }
     count[c] = (count[c] ?: 0) + 1
     chunkOf[s] = c
@@ -49,12 +63,14 @@ class StrokeCache(private val chunkSize: Int = 48) {
   /**
    * Draws [strokes] (already in drawing order, for one layer and kind) through the cache.
    * [version] is anything else that changes how they look (page colour, peeled tape, a picture
-   * that has just loaded); [draw] draws one stroke.
+   * that has just loaded); [viewport] optionally skips chunks outside the visible page rect;
+   * [draw] draws one stroke.
    */
   fun DrawScope.drawCached(
     group: String,
     strokes: List<InkStroke>,
     version: (InkStroke) -> Any?,
+    viewport: Rect? = null,
     draw: DrawScope.(InkStroke) -> Unit
   ) {
     if (strokes.isEmpty()) return
@@ -70,7 +86,9 @@ class StrokeCache(private val chunkSize: Int = 48) {
         record(chunk, list, draw)
         chunk.key = key
       }
-      canvas.drawRenderNode(chunk.node)
+      if (viewport == null || chunk.bounds.isEmpty || chunk.bounds.overlaps(viewport)) {
+        canvas.drawRenderNode(chunk.node)
+      }
     }
   }
 
@@ -79,6 +97,7 @@ class StrokeCache(private val chunkSize: Int = 48) {
     val pad = (list.maxOf { it.width } * 1.6f) + 8f
     val l = floor(b.left - pad).toInt(); val t = floor(b.top - pad).toInt()
     val r = ceil(b.right + pad).toInt(); val btm = ceil(b.bottom + pad).toInt()
+    chunk.bounds = Rect(l.toFloat(), t.toFloat(), r.coerceAtLeast(l + 1).toFloat(), btm.coerceAtLeast(t + 1).toFloat())
     val node = chunk.node
     node.setPosition(l, t, r.coerceAtLeast(l + 1), btm.coerceAtLeast(t + 1))
     val rc = node.beginRecording()

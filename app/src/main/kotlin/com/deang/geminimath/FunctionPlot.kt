@@ -86,7 +86,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 
-// The small graph of a function drawn under a solution.
+// The interactive inline graph of one or more functions drawn under a solution.
+// Supports multiple curves (; separated) and S Pen / touch crosshair tracing that snaps to
+// roots, local extrema, y-intercepts, and curve intersections.
+
+private val SecondaryCurvePalette = listOf(
+  Color(0xFFD81B60),
+  Color(0xFF1E88E5),
+  Color(0xFF8E24AA),
+  Color(0xFFF4511E)
+)
 
 @Composable
 fun FunctionPlotCanvas(
@@ -94,50 +103,123 @@ fun FunctionPlotCanvas(
   curveColor: Color = Color(0xFF00897B),
   modifier: Modifier = Modifier
 ) {
-  Canvas(modifier = modifier) {
-    val w = size.width
-    val h = size.height
-    val xMin = -6.0
-    val xMax = 6.0
-    val yMin = -8.0
-    val yMax = 8.0
+  val win = remember(expr) { GraphWindow(-6.0, 6.0, -8.0, 8.0) }
+  val exprs = remember(expr) { GraphRender.splitExpressions(expr) }
+  val specials = remember(expr, win) { GraphRender.specialPoints(expr, win) }
+  var traceX by remember(expr) { mutableStateOf<Double?>(null) }
+  val tracedPoint = remember(expr, traceX, win) {
+    traceX?.let { tx -> GraphRender.snapTrace(expr, tx, win) }
+  }
 
-    fun toScreenX(x: Double): Float = ((x - xMin) / (xMax - xMin) * w).toFloat()
-    fun toScreenY(y: Double): Float = (h - (y - yMin) / (yMax - yMin) * h).toFloat()
-
-    for (gx in -5..5) {
-      val sx = toScreenX(gx.toDouble())
-      drawLine(Color(0xFFEDF2F7), Offset(sx, 0f), Offset(sx, h), strokeWidth = 1f)
-    }
-    for (gy in -6..6 step 2) {
-      val sy = toScreenY(gy.toDouble())
-      drawLine(Color(0xFFEDF2F7), Offset(0f, sy), Offset(w, sy), strokeWidth = 1f)
-    }
-
-    val ox = toScreenX(0.0)
-    val oy = toScreenY(0.0)
-    drawLine(Color(0xFF94A3B8), Offset(0f, oy), Offset(w, oy), strokeWidth = 2f)
-    drawLine(Color(0xFF94A3B8), Offset(ox, 0f), Offset(ox, h), strokeWidth = 2f)
-
-    val path = Path()
-    var started = false
-    val steps = 280
-    for (i in 0..steps) {
-      val x = xMin + (xMax - xMin) * i / steps
-      val y = LocalMathEngine.evalAt(expr, x)
-      if (y.isFinite() && y in -40.0..40.0) {
-        val sx = toScreenX(x)
-        val sy = toScreenY(y)
-        if (!started) {
-          path.moveTo(sx, sy)
-          started = true
-        } else {
-          path.lineTo(sx, sy)
+  Box(modifier = modifier) {
+    Canvas(
+      modifier = Modifier
+        .fillMaxSize()
+        .pointerInput(expr) {
+          awaitPointerEventScope {
+            while (true) {
+              val event = awaitPointerEvent()
+              val change = event.changes.firstOrNull() ?: continue
+              if (change.pressed) {
+                val frac = (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                traceX = win.xMin + (win.xMax - win.xMin) * frac
+                change.consume()
+              }
+            }
+          }
         }
-      } else {
-        started = false
+    ) {
+      val w = size.width
+      val h = size.height
+      val xMin = win.xMin
+      val xMax = win.xMax
+      val yMin = win.yMin
+      val yMax = win.yMax
+
+      fun toScreenX(x: Double): Float = ((x - xMin) / (xMax - xMin) * w).toFloat()
+      fun toScreenY(y: Double): Float = (h - (y - yMin) / (yMax - yMin) * h).toFloat()
+
+      for (gx in -5..5) {
+        val sx = toScreenX(gx.toDouble())
+        drawLine(Color(0xFFEDF2F7), Offset(sx, 0f), Offset(sx, h), strokeWidth = 1f)
+      }
+      for (gy in -6..6 step 2) {
+        val sy = toScreenY(gy.toDouble())
+        drawLine(Color(0xFFEDF2F7), Offset(0f, sy), Offset(w, sy), strokeWidth = 1f)
+      }
+
+      val ox = toScreenX(0.0)
+      val oy = toScreenY(0.0)
+      drawLine(Color(0xFF94A3B8), Offset(0f, oy), Offset(w, oy), strokeWidth = 2f)
+      drawLine(Color(0xFF94A3B8), Offset(ox, 0f), Offset(ox, h), strokeWidth = 2f)
+
+      val steps = 280
+      exprs.forEachIndexed { idx, singleExpr ->
+        val col = if (idx == 0) curveColor else SecondaryCurvePalette[(idx - 1) % SecondaryCurvePalette.size]
+        val path = Path()
+        var started = false
+        for (i in 0..steps) {
+          val x = xMin + (xMax - xMin) * i / steps
+          val y = LocalMathEngine.evalAt(singleExpr, x)
+          if (y.isFinite() && y in -40.0..40.0) {
+            val sx = toScreenX(x)
+            val sy = toScreenY(y)
+            if (!started) {
+              path.moveTo(sx, sy)
+              started = true
+            } else {
+              path.lineTo(sx, sy)
+            }
+          } else {
+            started = false
+          }
+        }
+        drawPath(path, col, style = Stroke(width = 3.8f, cap = StrokeCap.Round))
+      }
+
+      // Draw subtle markers on notable points (roots, extrema, intersections)
+      for (sp in specials) {
+        val sx = toScreenX(sp.x)
+        val sy = toScreenY(sp.y)
+        val dotColor = if (sp.kind == "Intersection") Color(0xFFD81B60) else curveColor
+        drawCircle(Color.White, radius = 5.5f, center = Offset(sx, sy))
+        drawCircle(dotColor, radius = 3.8f, center = Offset(sx, sy))
+      }
+
+      // Interactive trace crosshair & highlighted point
+      tracedPoint?.let { tp ->
+        val sx = toScreenX(tp.x)
+        val sy = toScreenY(tp.y)
+        drawLine(Color(0x883993A0), Offset(sx, 0f), Offset(sx, h), strokeWidth = 1.5f)
+        drawLine(Color(0x883993A0), Offset(0f, sy), Offset(w, sy), strokeWidth = 1.5f)
+        drawCircle(Color.White, radius = 8f, center = Offset(sx, sy))
+        drawCircle(Color(0xFF00897B), radius = 5.5f, center = Offset(sx, sy))
       }
     }
-    drawPath(path, curveColor, style = Stroke(width = 3.8f, cap = StrokeCap.Round))
+
+    // Floating trace coordinate badge at bottom-left when tracing (or hint when idle)
+    val badgeText = tracedPoint?.let { tp ->
+      val prefix = if (tp.kind != "Point") "${tp.kind}: " else ""
+      "${prefix}(${MathFormat.num(tp.x)}, ${MathFormat.num(tp.y)})"
+    } ?: if (specials.isNotEmpty()) "Drag to trace roots & extrema" else null
+
+    if (badgeText != null) {
+      Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = if (tracedPoint != null) Color(0xEE263238) else Color(0xCCFFFFFF),
+        modifier = Modifier
+          .align(Alignment.BottomStart)
+          .padding(horizontal = 10.dp, vertical = 6.dp)
+          .clickable(enabled = tracedPoint != null) { traceX = null }
+      ) {
+        Text(
+          text = badgeText,
+          fontSize = 11.sp,
+          fontWeight = if (tracedPoint != null) FontWeight.SemiBold else FontWeight.Normal,
+          color = if (tracedPoint != null) Color.White else Color(0xFF64748B),
+          modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+        )
+      }
+    }
   }
 }

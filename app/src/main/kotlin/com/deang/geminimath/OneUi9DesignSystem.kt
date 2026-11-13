@@ -1605,11 +1605,10 @@ fun OneUi9SolutionStepsCard(
                 }
                 if (expanded) {
                   Spacer(Modifier.height(4.dp))
-                  Text(
+                  TypesetMathText(
                     text = stepText,
-                    fontSize = 13.5.sp,
                     color = EditorChrome.text,
-                    lineHeight = 19.sp
+                    fontSize = 13.5.sp
                   )
                 }
               }
@@ -1639,13 +1638,13 @@ fun OneUi9SolutionStepsCard(
               color = OneUi9Tokens.SamsungDeepBlue
             )
             Spacer(Modifier.height(6.dp))
-            Text(
+            TypesetMathText(
               text = solution.finalAnswer,
+              color = EditorChrome.text,
               fontSize = 18.sp,
               fontWeight = FontWeight.Bold,
               fontFamily = FontFamily.Serif,
-              fontStyle = FontStyle.Italic,
-              color = EditorChrome.text
+              fontStyle = FontStyle.Italic
             )
           }
         }
@@ -1669,11 +1668,10 @@ fun OneUi9SolutionStepsCard(
                 )
               }
               Spacer(Modifier.height(4.dp))
-              Text(
+              TypesetMathText(
                 text = geminiExplanation,
-                fontSize = 12.5.sp,
                 color = EditorChrome.text,
-                lineHeight = 18.sp
+                fontSize = 12.5.sp
               )
             }
           }

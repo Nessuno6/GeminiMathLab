@@ -42,7 +42,7 @@ object NotePictures {
 
   /** File names of the pictures and page background a note uses. */
   fun namesIn(note: MathNote): List<String> =
-    (note.strokes.mapNotNull { it.picture?.path } + listOfNotNull(note.backgroundImagePath)).map { File(it).name }.distinct()
+    (note.strokes.mapNotNull { it.picture?.path } + BackgroundPages.paths(note.backgroundImagePath)).map { File(it).name }.distinct()
 
   /** Saves [bmp] as a JPG in the app's pictures folder. */
   fun save(context: Context, bmp: Bitmap): File {

@@ -65,11 +65,16 @@ data class MathNote(
   val strokes: List<InkStroke>,
   val folderId: String? = null,
   val isFavourite: Boolean = false,
-  /** Absolute path of an imported PDF page / PNG image rendered underneath the ink (local only). */
+  /** Absolute path(s) of imported PDF page(s) / PNG image rendered underneath the ink (`;`-separated for multi-page). */
   val backgroundImagePath: String? = null,
   val paperColor: PaperColor = PaperColor.WHITE,
-  val layers: List<NoteLayer> = listOf(NoteLayer(0, "Layer 0"))
-)
+  val layers: List<NoteLayer> = listOf(NoteLayer(0, "Layer 0")),
+  /** False when only the lightweight metadata sidecar is in memory and strokes are loaded on demand. */
+  val strokesLoaded: Boolean = true,
+  val strokeCountHint: Int = strokes.size
+) {
+  val strokeCount: Int get() = if (strokesLoaded) strokes.size else strokeCountHint
+}
 
 /**
  * Local JSON repository for math notes and user folders, compatible with Google Drive appDataFolder sync.
@@ -86,6 +91,8 @@ object NotesRepository {
     if (!dir.exists()) dir.mkdirs()
     return dir
   }
+
+  private fun metaFile(dir: File, noteId: String): File = File(dir, "$noteId.meta")
 
   private fun foldersFile(context: Context): File {
     return File(context.filesDir, "myscript_style_folders.json")
@@ -132,22 +139,41 @@ object NotesRepository {
     foldersFile(context).writeText(arr.toString(2))
   }
 
-  fun loadAllNotes(context: Context): List<MathNote> {
+  fun loadAllNotes(context: Context): List<MathNote> = loadNotesInternal(context, lazyStrokes = false)
+
+  /**
+   * Fast startup loader: reads lightweight `.meta` sidecars for the notes library and only parses
+   * full stroke arrays for the most recently edited note (the one opened first in the editor).
+   */
+  fun loadAllNoteSummaries(context: Context): List<MathNote> = loadNotesInternal(context, lazyStrokes = true)
+
+  private fun loadNotesInternal(context: Context, lazyStrokes: Boolean): List<MathNote> {
     val dir = notesDir(context)
     // Remove legacy pre-populated sample files so no fake sample equations appear
     legacySampleIds.forEach { sampleId ->
       val f = File(dir, "$sampleId.json")
       if (f.exists()) f.delete()
+      val m = metaFile(dir, sampleId)
+      if (m.exists()) m.delete()
     }
 
     val files = dir.listFiles { f -> f.extension == "json" }
     val loaded = files?.mapNotNull { file ->
       try {
-        val note = parseNoteJson(file.readText())
-        // Only the old built-in sample notes are removed, matched by ID. (Matching on content would
-        // also delete a user's own note that happens to contain the same integral.)
+        val idFromName = file.nameWithoutExtension
+        pendingSaves[idFromName]?.let { return@mapNotNull it }
+        val mf = metaFile(dir, idFromName)
+        val note = if (lazyStrokes && mf.exists() && mf.lastModified() >= file.lastModified()) {
+          parseNoteMetaJson(mf.readText())
+        } else {
+          parseNoteJson(file.readText()).also { parsed ->
+            runCatching { mf.writeText(serializeNoteMetaJson(parsed).toString()) }
+          }
+        }
+        // Only the old built-in sample notes are removed, matched by ID.
         if (note.id in legacySampleIds) {
           file.delete()
+          mf.delete()
           null
         } else {
           note
@@ -162,7 +188,20 @@ object NotesRepository {
       saveNote(context, blankNote)
       return listOf(blankNote)
     }
+    if (lazyStrokes && !loaded.first().strokesLoaded) {
+      val firstHydrated = ensureStrokesLoaded(context, loaded.first())
+      return listOf(firstHydrated) + loaded.drop(1)
+    }
     return loaded
+  }
+
+  /** Loads the full strokes of [note] from disk (or pending memory save) if not yet hydrated. */
+  fun ensureStrokesLoaded(context: Context, note: MathNote): MathNote {
+    pendingSaves[note.id]?.let { if (it.strokesLoaded) return it }
+    if (note.strokesLoaded) return note
+    val file = File(notesDir(context), "${note.id}.json")
+    if (!file.exists()) return note.copy(strokesLoaded = true)
+    return runCatching { parseNoteJson(file.readText()) }.getOrDefault(note.copy(strokesLoaded = true))
   }
 
   fun createBlankNote(folderId: String? = null, paper: PaperPattern = PaperPattern.GRID): MathNote {
@@ -181,12 +220,27 @@ object NotesRepository {
   }
 
   fun saveNote(context: Context, note: MathNote) {
-    val file = File(notesDir(context), "${note.id}.json")
+    val dir = notesDir(context)
+    val hydrated = if (note.strokesLoaded) note else ensureStrokesLoaded(context, note).copy(
+      title = note.title,
+      updatedAt = note.updatedAt,
+      paperPattern = note.paperPattern,
+      graphColor = note.graphColor,
+      showInlinePlotter = note.showInlinePlotter,
+      recognizedLatex = note.recognizedLatex,
+      folderId = note.folderId,
+      isFavourite = note.isFavourite,
+      backgroundImagePath = note.backgroundImagePath,
+      paperColor = note.paperColor,
+      layers = note.layers
+    )
+    val file = File(dir, "${hydrated.id}.json")
     // Written to a temp file first so a note is never left half-written; compact JSON is much
     // faster to write than indented JSON for notes with a lot of ink
-    val tmp = File(file.parentFile, "${note.id}.json.tmp")
-    tmp.writeText(serializeNoteJson(note).toString())
+    val tmp = File(file.parentFile, "${hydrated.id}.json.tmp")
+    tmp.writeText(serializeNoteJson(hydrated).toString())
     if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
+    runCatching { metaFile(dir, hydrated.id).writeText(serializeNoteMetaJson(hydrated).toString()) }
   }
 
   private val saveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
@@ -200,7 +254,8 @@ object NotesRepository {
    */
   fun saveNoteAsync(context: Context, note: MathNote) {
     val app = context.applicationContext
-    if (pendingSaves.put(note.id, note) != null) return // a save for this note is already queued
+    val alreadyQueued = pendingSaves.put(note.id, note) != null
+    if (alreadyQueued) return // a save for this note is already queued and will pick up the latest
     saveExecutor.execute {
       // Wait a moment so a burst of changes (rubbing out with the eraser, dragging) is written once
       Thread.sleep(350)
@@ -210,12 +265,74 @@ object NotesRepository {
   }
 
   fun deleteNote(context: Context, noteId: String) {
-    val file = File(notesDir(context), "$noteId.json")
+    val dir = notesDir(context)
+    val file = File(dir, "$noteId.json")
+    val mf = metaFile(dir, noteId)
     // A queued background save mustn't write the note back after it's deleted
     pendingSaves.remove(noteId)
     if (file.exists()) file.delete()
-    saveExecutor.execute { if (file.exists()) file.delete() }
+    if (mf.exists()) mf.delete()
+    saveExecutor.execute {
+      if (file.exists()) file.delete()
+      if (mf.exists()) mf.delete()
+    }
   }
+
+  private fun serializeNoteMetaJson(note: MathNote): JSONObject {
+    val root = JSONObject()
+    root.put("id", note.id)
+    root.put("title", note.title)
+    root.put("updatedAt", note.updatedAt)
+    root.put("paperPattern", note.paperPattern.name)
+    root.put("graphColor", note.graphColor.name)
+    root.put("showInlinePlotter", note.showInlinePlotter)
+    root.put("recognizedLatex", note.recognizedLatex)
+    if (note.folderId != null) root.put("folderId", note.folderId)
+    root.put("isFavourite", note.isFavourite)
+    if (note.backgroundImagePath != null) root.put("backgroundImagePath", note.backgroundImagePath)
+    root.put("paperColor", note.paperColor.name)
+    root.put("layers", JSONArray().apply {
+      note.layers.forEach { l -> put(JSONObject().put("id", l.id).put("name", l.name).put("visible", l.visible).put("opacity", l.opacity.toDouble())) }
+    })
+    root.put("strokeCount", note.strokeCount)
+    return root
+  }
+
+  private fun parseNoteMetaJson(jsonStr: String): MathNote {
+    val obj = JSONObject(jsonStr)
+    val id = obj.getString("id")
+    val title = obj.optString("title", "Untitled")
+    val updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+    val paperPattern = runCatching { PaperPattern.valueOf(obj.optString("paperPattern", "GRID")) }.getOrDefault(PaperPattern.GRID)
+    val graphColor = runCatching { GraphColorTheme.valueOf(obj.optString("graphColor", "EMERALD")) }.getOrDefault(GraphColorTheme.EMERALD)
+    val showInlinePlotter = obj.optBoolean("showInlinePlotter", false)
+    val recognizedLatex = obj.optString("recognizedLatex", "")
+    val folderId = obj.optString("folderId", "").takeIf { it.isNotBlank() }
+    val isFavourite = obj.optBoolean("isFavourite", false)
+    val strokeCount = obj.optInt("strokeCount", 0)
+    return MathNote(
+      id = id,
+      title = title,
+      updatedAt = updatedAt,
+      paperPattern = paperPattern,
+      graphColor = graphColor,
+      showInlinePlotter = showInlinePlotter,
+      recognizedLatex = recognizedLatex,
+      strokes = emptyList(),
+      folderId = folderId,
+      isFavourite = isFavourite,
+      backgroundImagePath = obj.optString("backgroundImagePath", "").takeIf { it.isNotBlank() }?.let { localizeBackgroundPaths(it) },
+      paperColor = runCatching { PaperColor.valueOf(obj.optString("paperColor", "WHITE")) }.getOrDefault(PaperColor.WHITE),
+      layers = obj.optJSONArray("layers")?.let { arr ->
+        (0 until arr.length()).map { i -> arr.getJSONObject(i).let { l -> NoteLayer(l.getInt("id"), l.optString("name", "Layer"), l.optBoolean("visible", true), l.optDouble("opacity", 1.0).toFloat()) } }
+      }?.takeIf { it.isNotEmpty() }?.let { LayerNames.renumber(it) } ?: listOf(NoteLayer(0, "Layer 0")),
+      strokesLoaded = strokeCount == 0,
+      strokeCountHint = strokeCount
+    )
+  }
+
+  private fun localizeBackgroundPaths(raw: String): String =
+    raw.split(';').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(";") { NotePictures.localPath(it) }
 
   fun serializeNoteJson(note: MathNote): JSONObject {
     val root = JSONObject()
@@ -244,7 +361,7 @@ object NotesRepository {
       if (s.penType != PenType.PEN) sObj.put("pen", s.penType.name)
       if (s.lineStyle != LineStyle.SOLID) sObj.put("line", s.lineStyle.name)
       if (s.layer != 0) sObj.put("layer", s.layer)
-      s.fill?.let { m -> sObj.put("fill", JSONObject().put("w", m.w).put("h", m.h).put("mask", FillCodec.encode(m.mask))) }
+      s.fill?.let { m -> sObj.put("fill", JSONObject().put("w", m.w).put("h", m.h).put("mask", m.encoded)) }
       s.picture?.let { p -> sObj.put("picture", p.path) }
       if (s.chisel) sObj.put("chisel", true)
       if (s.tapePattern != TapePattern.PLAIN) sObj.put("tapePattern", s.tapePattern.name)
@@ -299,7 +416,7 @@ object NotesRepository {
         )
       }
       if (pts.isNotEmpty()) {
-        strokes.add(InkStroke(pts, width, colorHex, isHighlighter, isTape = sObj.optBoolean("isTape", false), penType = runCatching { PenType.valueOf(sObj.optString("pen", "PEN")) }.getOrDefault(PenType.PEN), lineStyle = runCatching { LineStyle.valueOf(sObj.optString("line", "SOLID")) }.getOrDefault(LineStyle.SOLID), layer = sObj.optInt("layer", 0), fill = sObj.optJSONObject("fill")?.let { fo -> runCatching { FillMask(fo.getInt("w"), fo.getInt("h"), FillCodec.decode(fo.getString("mask"))) }.getOrNull() }, picture = sObj.optString("picture", "").takeIf { it.isNotEmpty() }?.let { NotePicture(NotePictures.localPath(it)) }, chisel = sObj.optBoolean("chisel", false), tapePattern = runCatching { TapePattern.valueOf(sObj.optString("tapePattern", "PLAIN")) }.getOrDefault(TapePattern.PLAIN)))
+        strokes.add(InkStroke(pts, width, colorHex, isHighlighter, isTape = sObj.optBoolean("isTape", false), penType = runCatching { PenType.valueOf(sObj.optString("pen", "PEN")) }.getOrDefault(PenType.PEN), lineStyle = runCatching { LineStyle.valueOf(sObj.optString("line", "SOLID")) }.getOrDefault(LineStyle.SOLID), layer = sObj.optInt("layer", 0), fill = sObj.optJSONObject("fill")?.let { fo -> runCatching { FillMask(fo.getInt("w"), fo.getInt("h"), fo.getString("mask")) }.getOrNull() }, picture = sObj.optString("picture", "").takeIf { it.isNotEmpty() }?.let { NotePicture(NotePictures.localPath(it)) }, chisel = sObj.optBoolean("chisel", false), tapePattern = runCatching { TapePattern.valueOf(sObj.optString("tapePattern", "PLAIN")) }.getOrDefault(TapePattern.PLAIN)))
       }
     }
     return MathNote(
@@ -313,11 +430,13 @@ object NotesRepository {
       strokes = strokes,
       folderId = folderId,
       isFavourite = isFavourite,
-      backgroundImagePath = obj.optString("backgroundImagePath", "").takeIf { it.isNotBlank() }?.let { NotePictures.localPath(it) },
+      backgroundImagePath = obj.optString("backgroundImagePath", "").takeIf { it.isNotBlank() }?.let { localizeBackgroundPaths(it) },
       paperColor = runCatching { PaperColor.valueOf(obj.optString("paperColor", "WHITE")) }.getOrDefault(PaperColor.WHITE),
       layers = obj.optJSONArray("layers")?.let { arr ->
         (0 until arr.length()).map { i -> arr.getJSONObject(i).let { l -> NoteLayer(l.getInt("id"), l.optString("name", "Layer"), l.optBoolean("visible", true), l.optDouble("opacity", 1.0).toFloat()) } }
-      }?.takeIf { it.isNotEmpty() }?.let { LayerNames.renumber(it) } ?: listOf(NoteLayer(0, "Layer 0"))
+      }?.takeIf { it.isNotEmpty() }?.let { LayerNames.renumber(it) } ?: listOf(NoteLayer(0, "Layer 0")),
+      strokesLoaded = true,
+      strokeCountHint = strokes.size
     )
   }
 }

@@ -329,12 +329,21 @@ fun AssistantPanel(
         items(turns) { t ->
           Row(Modifier.fillMaxWidth(), horizontalArrangement = if (t.fromUser) Arrangement.End else Arrangement.Start) {
             SelectionContainer {
-              Text(
-                t.text, fontSize = 15.sp, color = if (t.fromUser) Color.White else EditorChrome.text,
+              Box(
                 modifier = Modifier.widthIn(max = 520.dp).clip(RoundedCornerShape(18.dp))
                   .background(if (t.fromUser) OneUi9Tokens.SamsungBlue else if (EditorChrome.dark) Color(0xFF2A2A2D) else Color(0xFFF1F2F5))
                   .padding(horizontal = 14.dp, vertical = 10.dp)
-              )
+              ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                  t.text.split('\n').forEach { line ->
+                    TypesetMathText(
+                      text = line,
+                      fontSize = 15.sp,
+                      color = if (t.fromUser) Color.White else EditorChrome.text
+                    )
+                  }
+                }
+              }
             }
           }
         }

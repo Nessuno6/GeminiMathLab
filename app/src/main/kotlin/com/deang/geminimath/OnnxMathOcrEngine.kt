@@ -29,6 +29,19 @@ class OnnxMathOcrEngine(private val context: Context) {
   private var decoderSession: OrtSession? = null
   private val idToToken = HashMap<Int, String>(2048)
 
+  // Pre-allocated preprocessing buffers (384×384 RGB) reused across OCR calls to avoid GC churn
+  private val preprocessLock = Any()
+  private var reusableBitmap: Bitmap? = null
+  private val reusablePixels = IntArray(TARGET_SIZE * TARGET_SIZE)
+  private val reusableFloatBuf: FloatBuffer =
+    java.nio.ByteBuffer.allocateDirect(3 * TARGET_SIZE * TARGET_SIZE * 4)
+      .order(java.nio.ByteOrder.nativeOrder())
+      .asFloatBuffer()
+
+  companion object {
+    private const val TARGET_SIZE = 384
+  }
+
   @Volatile
   var isReady: Boolean = false
     private set
@@ -61,8 +74,10 @@ class OnnxMathOcrEngine(private val context: Context) {
     val decFile = copyAssetIfNeeded("mfr/decoder_model.onnx", "pix2text_decoder_1_5.onnx")
 
     val opts = OrtSession.SessionOptions().apply {
-      setIntraOpNumThreads(4)
+      val cores = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+      setIntraOpNumThreads(cores)
       setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+      runCatching { addXnnpack(emptyMap()) }
     }
 
     encoderSession = env.createSession(encFile.absolutePath, opts)
@@ -88,14 +103,15 @@ class OnnxMathOcrEngine(private val context: Context) {
   /**
    * Runs Pix2Text-MFR 1.5 VisionEncoderDecoder (DeiT-384x384 + TrOCR-Decoder) on a cropped formula Bitmap.
    */
-  fun recognizeFormula(formulaBitmap: Bitmap, maxTokens: Int = 96, stretch: Boolean = false): OcrResult {
+  fun recognizeFormula(formulaBitmap: Bitmap, maxTokens: Int = 96, stretch: Boolean = false): OcrResult = synchronized(preprocessLock) {
     val env = ortEnv ?: error("ORT Environment non inizializzato")
     val enc = encoderSession ?: error("Encoder ONNX non inizializzato")
     val dec = decoderSession ?: error("Decoder ONNX non inizializzato")
 
-    // 1. Preprocess image to 384x384 preserving aspect ratio on white background
-    val targetSize = 384
-    val paddedBmp = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
+    // 1. Preprocess image to 384x384 preserving aspect ratio on white background (reusing buffers)
+    val targetSize = TARGET_SIZE
+    val paddedBmp = reusableBitmap?.takeIf { !it.isRecycled && it.width == targetSize && it.height == targetSize }
+      ?: Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888).also { reusableBitmap = it }
     val canvas = Canvas(paddedBmp)
     canvas.drawColor(Color.WHITE)
 
@@ -114,12 +130,13 @@ class OnnxMathOcrEngine(private val context: Context) {
       canvas.drawBitmap(formulaBitmap, null, RectF(left, top, left + drawW, top + drawH), paint)
     }
 
-    val pixels = IntArray(targetSize * targetSize)
+    val pixels = reusablePixels
     paddedBmp.getPixels(pixels, 0, targetSize, 0, 0, targetSize, targetSize)
 
     // DeiT normalization: mean=0.5, std=0.5 -> (c / 255.0 - 0.5) / 0.5 = c / 127.5 - 1.0
     val hw = targetSize * targetSize
-    val floatBuf = FloatBuffer.allocate(3 * hw)
+    val floatBuf = reusableFloatBuf
+    floatBuf.clear()
     for (i in 0 until hw) {
       val p = pixels[i]
       val r = ((p shr 16) and 0xFF) / 127.5f - 1.0f

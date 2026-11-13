@@ -166,12 +166,14 @@ fun OneUi9SelectionBottomBar(count: Int, actions: NoteSelectionActions, modifier
 /** Small, down-sampled preview of an imported PDF page / image used on note thumbnails. */
 @Composable
 fun NoteBackgroundThumb(path: String, modifier: Modifier = Modifier) {
+  // Multi-page PDF notes show their first page
+  val first = BackgroundPages.firstPath(path) ?: return
   // Decoded in the background: decoding on the main thread made the notes list stutter
-  val bmp = androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, path) {
+  val bmp = androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, first) {
     value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
       runCatching {
         val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 }
-        android.graphics.BitmapFactory.decodeFile(path, opts)?.asImageBitmap()
+        android.graphics.BitmapFactory.decodeFile(first, opts)?.asImageBitmap()
       }.getOrNull()
     }
   }.value

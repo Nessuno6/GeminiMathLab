@@ -320,4 +320,41 @@ class SolverTest {
     assertEquals(answer("\\int e^{x} \\cdot x dx"), answer("\\int \\mathbf { e ^ { x } \\cdot x \\, d x }"))
     assertEquals(answer("x^{2}-5x+6=0"), answer("\\begin{matrix} x ^ { 2 } - 5 x + 6 = 0 } \\\\ \\end{matrix}"))
   }
+
+  // ---------- Systems of Equations, Matrices, ODEs & Partial Fractions ----------
+
+  @Test fun linearSystems2x2And3x3() {
+    assertEquals("x = 2, y = 1", answer("\\begin{cases} 2x + y = 5 \\\\ x - y = 1 \\end{cases}"))
+    assertEquals("x = 3, y = -1", answer("x + y = 2 ; 2x - y = 7"))
+    assertEquals("No solution", answer("\\begin{cases} x + y = 1 \\\\ x + y = 3 \\end{cases}"))
+    assertEquals("x = 1, y = 2, z = 3", answer("\\begin{cases} x + y + z = 6 \\\\ 2x - y + z = 3 \\\\ x + 2y - z = 2 \\end{cases}"))
+  }
+
+  @Test fun nonlinearSystem2x2() {
+    assertEquals("(-1, 1), (2, 4)", answer("\\begin{cases} y = x^2 \\\\ y = x + 2 \\end{cases}"))
+  }
+
+  @Test fun matricesAndDeterminants() {
+    assertEquals("-2", answer("\\begin{vmatrix} 1 & 2 \\\\ 3 & 4 \\end{vmatrix}"))
+    assertEquals("-2", answer("\\det \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}"))
+    assertEquals("[-2, 1; 3/2, -1/2]", answer("\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}^{-1}"))
+    assertEquals("[1, 3; 2, 4]", answer("\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}^{T}"))
+    assertEquals("[19, 22; 43, 50]", answer("\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix} \\cdot \\begin{pmatrix} 5 & 6 \\\\ 7 & 8 \\end{pmatrix}"))
+    assertEquals("[6, 8; 10, 12]", answer("\\begin{bmatrix} 1 & 2 \\\\ 3 & 4 \\end{bmatrix} + \\begin{bmatrix} 5 & 6 \\\\ 7 & 8 \\end{bmatrix}"))
+    val study = solve("\\begin{pmatrix} 2 & 0 \\\\ 0 & 3 \\end{pmatrix}")
+    assertEquals("det = 6 · λ₁ = 2, λ₂ = 3", study.finalAnswer)
+  }
+
+  @Test fun firstOrderDifferentialEquations() {
+    assertEquals("y(x) = x² + C", answer("y' = 2x"))
+    assertEquals("y(x) = C·e^(2x)", answer("\\frac{dy}{dx} = 2y"))
+    assertEquals("y(x) = 3 + C·e⁻ˣ", answer("y' + y = 3"))
+  }
+
+  @Test fun explicitPartialFractionsIntegration() {
+    val s = solve("\\int \\frac{3x+5}{x^2-x-2} dx")
+    assertFalse(s.isUnreadable)
+    assertTrue(s.steps.any { it.contains("partial fractions", ignoreCase = true) })
+    assertAntiderivative("\\int \\frac{3x+5}{x^2-x-2} dx", "(3x+5)/(x^2-x-2)")
+  }
 }

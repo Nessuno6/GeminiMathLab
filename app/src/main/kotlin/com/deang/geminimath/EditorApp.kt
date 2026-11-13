@@ -94,16 +94,15 @@ fun MyScriptExactReplicaApp() {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
 
-  // Notes & Folders state
+  // Notes & Folders state (summaries loaded fast on startup; non-active notes hydrate strokes on demand)
   val notesList = remember {
-    mutableStateListOf<MathNote>().apply { addAll(NotesRepository.loadAllNotes(context)) }
+    mutableStateListOf<MathNote>().apply { addAll(NotesRepository.loadAllNoteSummaries(context)) }
   }
   val foldersList = remember {
     mutableStateListOf<NoteFolder>().apply { addAll(NotesRepository.loadFolders(context)) }
   }
   var currentNoteId by remember { mutableStateOf(notesList.firstOrNull()?.id ?: "note_blank") }
   var currentScreen by remember { mutableStateOf(AppScreen.EDITOR) }
-  var navRailExpanded by remember { mutableStateOf(false) }
 
   // App-wide settings (saved as they change)
   val settings = remember { AppSettings(context) }
@@ -250,7 +249,7 @@ fun MyScriptExactReplicaApp() {
       settings.lastSyncStatus = res.statusMessage
       if (res.success) {
         notesList.clear()
-        notesList.addAll(NotesRepository.loadAllNotes(context))
+        notesList.addAll(NotesRepository.loadAllNoteSummaries(context))
         refreshBin()
       }
       isSyncingDrive = false
@@ -330,7 +329,12 @@ fun MyScriptExactReplicaApp() {
     if (note.id in selectedNoteIds) selectedNoteIds.remove(note.id) else selectedNoteIds.add(note.id)
   }
 
-  fun selectedNotes(): List<MathNote> = notesList.filter { it.id in selectedNoteIds }
+  fun selectedNotes(): List<MathNote> = notesList.filter { it.id in selectedNoteIds }.map { n ->
+    if (n.strokesLoaded) n else NotesRepository.ensureStrokesLoaded(context, n).also { hydrated ->
+      val idx = notesList.indexOfFirst { it.id == n.id }
+      if (idx >= 0) notesList[idx] = hydrated
+    }
+  }
 
   val exportLauncher = rememberLauncherForActivityResult(CreateDocumentWithMime()) { uri ->
     val job = pendingExport
@@ -400,8 +404,12 @@ fun MyScriptExactReplicaApp() {
     NoteHandoff.openNote = updated
   }
 
-  fun switchToNote(note: MathNote, persistPrevious: Boolean = true, openEditor: Boolean = true) {
+  fun switchToNote(rawNote: MathNote, persistPrevious: Boolean = true, openEditor: Boolean = true) {
     if (persistPrevious) persistCurrentNote()
+    val note = if (rawNote.strokesLoaded) rawNote else NotesRepository.ensureStrokesLoaded(context, rawNote).also { hydrated ->
+      val idx = notesList.indexOfFirst { it.id == rawNote.id }
+      if (idx >= 0) notesList[idx] = hydrated
+    }
     currentNoteId = note.id
     noteTitle = note.title
     currentFolderId = note.folderId
@@ -471,7 +479,7 @@ fun MyScriptExactReplicaApp() {
     val id = handedOffNoteId ?: return@LaunchedEffect
     NoteHandoff.pendingNoteId = null
     notesList.clear()
-    notesList.addAll(NotesRepository.loadAllNotes(context))
+    notesList.addAll(NotesRepository.loadAllNoteSummaries(context))
     // Ink is saved after every stroke, so the note open here is already on disk
     notesList.find { it.id == id }?.let { switchToNote(it, persistPrevious = false) }
   }
@@ -972,11 +980,7 @@ fun MyScriptExactReplicaApp() {
           .statusBarsPadding()
           .navigationBarsPadding()
       ) {
-        val bgImage = remember(noteBackgroundPath) {
-          noteBackgroundPath?.let { p ->
-            runCatching { android.graphics.BitmapFactory.decodeFile(p)?.asImageBitmap() }.getOrNull()
-          }
-        }
+        val bgCache = remember(noteBackgroundPath) { BackgroundPageCache(noteBackgroundPath) }
         DisposableEffect(Unit) {
           // Phone toolbar: taps on the phone act on this canvas
           RemoteToolbarLink.onCommand = { cmd ->
@@ -1116,13 +1120,34 @@ fun MyScriptExactReplicaApp() {
               transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
             }
           ) {
-            // Imported PDF page / image underneath the ink
-            bgImage?.let { img ->
-              drawImage(
-                image = img,
-                dstOffset = androidx.compose.ui.unit.IntOffset(NoteImportExport.BG_X.toInt(), NoteImportExport.BG_Y.toInt()),
-                dstSize = androidx.compose.ui.unit.IntSize(img.width, img.height)
-              )
+            val vis = canvasView.visiblePage(size.width, size.height)
+            // Imported PDF pages / background image underneath the ink (off-screen pages culled)
+            @Suppress("UNUSED_EXPRESSION") bgCache.tick // redraw when a page finishes decoding off the main thread
+            bgCache.pages.forEachIndexed { idx, pg ->
+              val r = pg.rect
+              if (r.right < vis.left || r.left > vis.right || r.bottom < vis.top || r.top > vis.bottom) return@forEachIndexed
+              val img = bgCache.imageOrLoad(idx)
+              if (img != null) {
+                drawImage(
+                  image = img,
+                  dstOffset = androidx.compose.ui.unit.IntOffset(r.left.toInt(), r.top.toInt()),
+                  dstSize = androidx.compose.ui.unit.IntSize(r.width().toInt().coerceAtLeast(1), r.height().toInt().coerceAtLeast(1))
+                )
+              } else {
+                drawRect(
+                  color = Color(0xFFF3F4F6),
+                  topLeft = Offset(r.left, r.top),
+                  size = androidx.compose.ui.geometry.Size(r.width(), r.height())
+                )
+              }
+              if (bgCache.pages.size > 1) {
+                drawRect(
+                  color = if (paperColor.isDark) Color(0x33FFFFFF) else Color(0x22000000),
+                  topLeft = Offset(r.left, r.top),
+                  size = androidx.compose.ui.geometry.Size(r.width(), r.height()),
+                  style = Stroke(width = 1.5f / zoom)
+                )
+              }
             }
             // A glow behind strokes: the solved ones while the steps card is open, the selection's outline
             fun drawGlow(list: List<InkStroke>, color: Color, extra: Float = 18f) {
@@ -1157,18 +1182,17 @@ fun MyScriptExactReplicaApp() {
               val translucent = layer.opacity < 0.999f
               if (translucent) {
                 // Only the part on screen goes through the see-through buffer (a whole long page wouldn't fit)
-                val vis = canvasView.visiblePage(size.width, size.height)
                 val r = LassoTools.bounds(onLayer)?.inflate(onLayer.maxOf { it.width } + 4f)?.intersect(vis) ?: vis
                 drawContext.canvas.saveLayer(if (r.isEmpty) vis else r, androidx.compose.ui.graphics.Paint().apply { alpha = layer.opacity })
               }
               // Through the cache: only the small group of strokes that changed is drawn again
               with(strokeCache) {
                 val id = layer.id
-                drawCached("$id/pic", onLayer.filter { it.picture != null }, { it.picture?.image != null }) { drawStrokePath(it) }
-                drawCached("$id/fill", onLayer.filter { it.fill != null }, { null }) { drawStrokePath(it) }
-                drawCached("$id/hl", onLayer.filter { it.isHighlighter }, { null }) { drawStrokePath(it) }
-                drawCached("$id/ink", onLayer.filter { it.isInk }, { null }) { drawStrokePath(it) }
-                drawCached("$id/tape", onLayer.filter { it.isTape }, { s -> revealedTape.any { it === s } }) { drawStrokePath(it) }
+                drawCached("$id/pic", onLayer.filter { it.picture != null }, { it.picture?.image != null }, viewport = vis) { drawStrokePath(it) }
+                drawCached("$id/fill", onLayer.filter { it.fill != null }, { null }, viewport = vis) { drawStrokePath(it) }
+                drawCached("$id/hl", onLayer.filter { it.isHighlighter }, { null }, viewport = vis) { drawStrokePath(it) }
+                drawCached("$id/ink", onLayer.filter { it.isInk }, { null }, viewport = vis) { drawStrokePath(it) }
+                drawCached("$id/tape", onLayer.filter { it.isTape }, { s -> revealedTape.any { it === s } }, viewport = vis) { drawStrokePath(it) }
               }
               if (translucent) drawContext.canvas.restore()
             }
@@ -2285,35 +2309,110 @@ fun MyScriptExactReplicaApp() {
         }
         EditorPart {
 
-        // 4. BOTTOM-LEFT FLOATING "100% + Unlock" PILL (Matches real_myscript_screen1.png)
-        Surface(
-          shape = RoundedCornerShape(24.dp),
-          color = EditorChrome.bar,
-          shadowElevation = 4.dp,
+        // 4. BOTTOM-LEFT FLOATING "100% + Unlock" PILL (+ Multi-page PDF jumper when > 1 page)
+        Row(
           modifier = Modifier
             .align(Alignment.BottomStart)
-            .padding(start = 14.dp, bottom = 16.dp)
+            .padding(start = 14.dp, bottom = 16.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalAlignment = Alignment.CenterVertically
         ) {
-          Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+          Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = EditorChrome.bar,
+            shadowElevation = 4.dp
           ) {
-            // Tap the percentage to go back to 100%; the padlock locks panning and zooming
-            Text(
-              text = "${canvasView.percent}%",
-              fontSize = 13.sp,
-              fontWeight = FontWeight.Medium,
-              color = EditorChrome.text,
-              modifier = Modifier
-                .clickable(onClickLabel = "Reset zoom to 100%") { canvasView = CanvasView() }
-            )
-            Box(
-              modifier = Modifier
-                .clip(CircleShape)
-                .clickable(onClickLabel = if (canvasLocked) "Unlock canvas" else "Lock canvas") { canvasLocked = !canvasLocked }
+            Row(
+              modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-              MyScriptIcons.PadlockIcon(if (canvasLocked) OneUi9Tokens.SamsungBlue else Color(0xFF9A9AA0), 16.dp)
+              // Tap the percentage to go back to 100%; the padlock locks panning and zooming
+              Text(
+                text = "${canvasView.percent}%",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = EditorChrome.text,
+                modifier = Modifier
+                  .clickable(onClickLabel = "Reset zoom to 100%") { canvasView = CanvasView() }
+              )
+              Box(
+                modifier = Modifier
+                  .clip(CircleShape)
+                  .clickable(onClickLabel = if (canvasLocked) "Unlock canvas" else "Lock canvas") { canvasLocked = !canvasLocked }
+              ) {
+                MyScriptIcons.PadlockIcon(if (canvasLocked) OneUi9Tokens.SamsungBlue else Color(0xFF9A9AA0), 16.dp)
+              }
+            }
+          }
+          if (bgCache.pages.size > 1) {
+            val visNow = canvasView.visiblePage(canvasSizePx[0].coerceAtLeast(1f), canvasSizePx[1].coerceAtLeast(1f))
+            val currentIdx = BackgroundPages.currentPage(bgCache.pages, visNow).coerceIn(0, bgCache.pages.lastIndex)
+            var showPageMenu by remember { mutableStateOf(false) }
+            fun jumpToPdfPage(targetIdx: Int) {
+              val pg = bgCache.pages.getOrNull(targetIdx) ?: return
+              val s = canvasView.scale
+              val vw = canvasSizePx[0].coerceAtLeast(1f)
+              val targetX = if (pg.rect.width() * s <= vw) (vw - pg.rect.width() * s) / 2f - pg.rect.left * s else canvasView.offset.x
+              val targetY = 24f - pg.rect.top * s
+              canvasView = canvasView.copy(offset = Offset(targetX, targetY))
+            }
+            Box {
+              Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = EditorChrome.bar,
+                shadowElevation = 4.dp
+              ) {
+                Row(
+                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                  Text(
+                    text = "‹",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (currentIdx > 0) EditorChrome.text else EditorChrome.secondaryText,
+                    modifier = Modifier
+                      .clip(CircleShape)
+                      .clickable(enabled = currentIdx > 0, onClickLabel = "Previous page") { jumpToPdfPage(currentIdx - 1) }
+                      .padding(horizontal = 6.dp, vertical = 2.dp)
+                  )
+                  Text(
+                    text = "${currentIdx + 1} / ${bgCache.pages.size}",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = EditorChrome.text,
+                    modifier = Modifier
+                      .clip(RoundedCornerShape(8.dp))
+                      .clickable(onClickLabel = "Jump to page") { showPageMenu = true }
+                      .padding(horizontal = 4.dp, vertical = 2.dp)
+                  )
+                  Text(
+                    text = "›",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (currentIdx < bgCache.pages.lastIndex) EditorChrome.text else EditorChrome.secondaryText,
+                    modifier = Modifier
+                      .clip(CircleShape)
+                      .clickable(enabled = currentIdx < bgCache.pages.lastIndex, onClickLabel = "Next page") { jumpToPdfPage(currentIdx + 1) }
+                      .padding(horizontal = 6.dp, vertical = 2.dp)
+                  )
+                }
+              }
+              DropdownMenu(expanded = showPageMenu, onDismissRequest = { showPageMenu = false }) {
+                bgCache.pages.indices.forEach { i ->
+                  DropdownMenuItem(
+                    text = {
+                      Text(
+                        "Page ${i + 1}",
+                        fontWeight = if (i == currentIdx) FontWeight.Bold else FontWeight.Normal
+                      )
+                    },
+                    onClick = { showPageMenu = false; jumpToPdfPage(i) }
+                  )
+                }
+              }
             }
           }
         }
@@ -3023,382 +3122,37 @@ fun MyScriptExactReplicaApp() {
 
     AppScreen.HOME_NOTES, AppScreen.QUICK_LATEX -> {
       AppPart {
-      if (uiStyleMode == UiStyleMode.ONEUI_9) {
-        OneUi9NotesHomeScreen(
-          notes = notesList,
-          folders = foldersList,
-          activeNavSection = if (currentScreen == AppScreen.QUICK_LATEX) "quick_latex" else activeHomeSection,
-          onSelectNavSection = { sec ->
-            if (sec == "quick_latex") {
-              currentScreen = AppScreen.QUICK_LATEX
-            } else {
-              activeHomeSection = sec
-              currentScreen = AppScreen.HOME_NOTES
-            }
-          },
-          onOpenNote = { note -> switchToNote(note) },
-          selectedNoteIds = selectedNoteIds.toSet(),
+        HomeNotesAndQuickLatexScreen(
+          uiStyleMode = uiStyleMode,
+          onUiStyleChange = { settings.uiStyle = it },
+          currentScreen = currentScreen,
+          onScreenChange = { currentScreen = it },
+          notesList = notesList,
+          foldersList = foldersList,
+          activeHomeSection = activeHomeSection,
+          onActiveHomeSectionChange = { activeHomeSection = it },
+          currentFolderId = currentFolderId,
+          selectedNoteIds = selectedNoteIds,
           selectionMode = selectionMode,
-          onToggleSelectNote = { note -> toggleSelect(note) },
           onEnterSelectionMode = { selectionMode = true },
+          onToggleSelect = { toggleSelect(it) },
           onVisibleNotesChanged = { visibleNoteIds = it },
           selectionActions = selectionActions,
-          onImport = { launchImport() },
-          onCreateNewNote = { folderId ->
-            val newNote = NotesRepository.createBlankNote(folderId, settings.defaultPaper)
-            notesList.add(0, newNote)
-            NotesRepository.saveNote(context, newNote)
-            switchToNote(newNote)
-          },
-          onCreateFolder = { name, colorHex ->
-            val newFolder = NoteFolder(
-              id = "folder_${UUID.randomUUID().toString().take(8)}",
-              name = name,
-              colorHex = colorHex
-            )
-            foldersList.add(newFolder)
-            NotesRepository.saveFolders(context, foldersList.toList())
-          },
-          onEditFolder = { folder, newName, newColor ->
-            val idx = foldersList.indexOfFirst { it.id == folder.id }
-            if (idx >= 0) {
-              foldersList[idx] = folder.copy(name = newName, colorHex = newColor)
-              NotesRepository.saveFolders(context, foldersList.toList())
-            }
-          },
-          onDeleteFolder = { folder ->
-            foldersList.removeAll { it.id == folder.id }
-            NotesRepository.saveFolders(context, foldersList.toList())
-            // Notes inside a deleted folder are kept and moved to "No folder"
-            updateNotes(notesList.filter { it.folderId == folder.id }.map { it.id }) { it.copy(folderId = null) }
-          },
+          onSwitchToNote = { switchToNote(it) },
+          onLaunchImport = { launchImport() },
+          onUpdateNotes = { ids, transform -> updateNotes(ids, transform) },
           onOpenSettings = { section -> openSettings(section) },
-          onSwitchToM3E = { settings.uiStyle = UiStyleMode.M3E },
           onUseAsToolbar = { startLink(RemoteToolbarLink.Role.TOOLBAR) },
-          binCount = binEntries.size,
-          binContent = { m ->
-            BinPane(
-              entries = binEntries,
-              driveBackupOn = settings.driveBackup && account != null,
-              onRestore = { e ->
-                val local = NoteBin.restoreLocal(context, e.id)
-                if (local != null) {
-                  notesList.add(0, local)
-                  refreshBin()
-                  Toast.makeText(context, "Restored \"${local.title}\"", Toast.LENGTH_SHORT).show()
-                  if (settings.driveBackup && account != null) syncNow()
-                } else scope.launch {
-                  // Only on Drive: download it
-                  val note = GoogleDriveSyncManager.restoreFromCloud(context, e.id)
-                  if (note != null) {
-                    notesList.add(0, note)
-                    refreshBin()
-                    Toast.makeText(context, "Restored \"${note.title}\"", Toast.LENGTH_SHORT).show()
-                  } else Toast.makeText(context, "Couldn't get it from Google Drive. Check you're online and signed in.", Toast.LENGTH_LONG).show()
-                }
-              },
-              onDeleteForever = { e ->
-                NoteBin.deleteForever(context, e.id)
-                refreshBin()
-                scope.launch { GoogleDriveSyncManager.deletePurgedNow(context) }
-              },
-              onEmptyBin = {
-                binEntries.toList().forEach { NoteBin.deleteForever(context, it.id) }
-                refreshBin()
-                scope.launch { GoogleDriveSyncManager.deletePurgedNow(context) }
-              },
-              modifier = m
-            )
-          },
-          quickLatexContent = {
-            QuickLatexPad(
-              penOnly = disableFingerWriting,
-              recognize = { recognizeInk(it) },
-              onCopyLatex = { copyLatex(it) },
-              onOpenAsNote = { ink, latex -> openInkAsNote(ink, latex) },
-              modifier = Modifier.fillMaxSize()
-            )
-          }
+          defaultPaper = settings.defaultPaper,
+          driveBackupEnabled = settings.driveBackup && account != null,
+          binEntries = binEntries,
+          onRefreshBin = { refreshBin() },
+          onSyncNow = { syncNow() },
+          disableFingerWriting = disableFingerWriting,
+          recognizeInk = { recognizeInk(it) },
+          onCopyLatex = { copyLatex(it) },
+          onOpenInkAsNote = { ink, latex -> openInkAsNote(ink, latex) }
         )
-      } else {
-      // =========================================================================
-      // SCREEN 4 & 5: EXACT MYSCRIPT HOME ("My notes" & "Quick LaTeX" + Left Nav Rail)
-      // =========================================================================
-      Row(
-        modifier = Modifier
-          .fillMaxSize()
-          .background(Color.White)
-          .statusBarsPadding()
-          .navigationBarsPadding()
-      ) {
-        // Left Navigation Rail (Exact match to real_myscript_notes_home.png & real_myscript_nav_drawer.png)
-        Column(
-          modifier = Modifier
-            .width(if (navRailExpanded) 92.dp else 72.dp)
-            .fillMaxHeight()
-            .background(Color.White)
-            .padding(vertical = 18.dp),
-          horizontalAlignment = Alignment.CenterHorizontally,
-          verticalArrangement = Arrangement.SpaceBetween
-        ) {
-          Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(22.dp)
-          ) {
-            // Hamburger Toggle
-            Box(
-              contentAlignment = Alignment.Center,
-              modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .semantics { contentDescription = "Show or hide labels" }
-                .clickable { navRailExpanded = !navRailExpanded }
-            ) {
-              MyScriptIcons.HamburgerMenu(Color(0xFF1F1F1F), 20.dp)
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Item 1: My notes
-            Column(
-              horizontalAlignment = Alignment.CenterHorizontally,
-              modifier = Modifier.semantics { contentDescription = "My notes" }.clickable { currentScreen = AppScreen.HOME_NOTES }
-            ) {
-              Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                  .size(width = 52.dp, height = 42.dp)
-                  .clip(RoundedCornerShape(21.dp))
-                  .background(
-                    if (currentScreen == AppScreen.HOME_NOTES) Color(0xFFFCE8E6) else Color.Transparent
-                  )
-              ) {
-                MyScriptIcons.NoteDocIcon(
-                  color = if (currentScreen == AppScreen.HOME_NOTES) Color(0xFFD93025) else Color(0xFF1F1F1F),
-                  size = 20.dp
-                )
-              }
-              if (navRailExpanded) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("My notes", fontSize = 11.sp, color = Color(0xFF1F1F1F))
-              }
-            }
-
-            // Item 2: Quick LaTeX "{}"
-            Column(
-              horizontalAlignment = Alignment.CenterHorizontally,
-              modifier = Modifier.clickable { currentScreen = AppScreen.QUICK_LATEX }
-            ) {
-              Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                  .size(width = 52.dp, height = 42.dp)
-                  .clip(RoundedCornerShape(21.dp))
-                  .background(
-                    if (currentScreen == AppScreen.QUICK_LATEX) Color(0xFFFCE8E6) else Color.Transparent
-                  )
-              ) {
-                Text(
-                  text = "{ }",
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 15.sp,
-                  color = if (currentScreen == AppScreen.QUICK_LATEX) Color(0xFFD93025) else Color(0xFF1F1F1F)
-                )
-              }
-              if (navRailExpanded) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("Quick LaTeX", fontSize = 11.sp, color = Color(0xFF1F1F1F))
-              }
-            }
-          }
-
-          // Bottom Settings Gear
-          Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.semantics { contentDescription = "Settings" }.clickable(onClickLabel = "Settings") { openSettings() }
-          ) {
-            Box(
-              contentAlignment = Alignment.Center,
-              modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-            ) {
-              MyScriptIcons.SettingsGear(color = Color(0xFF1F1F1F), size = 21.dp)
-            }
-            if (navRailExpanded) {
-              Text("Settings", fontSize = 11.sp, color = Color(0xFF1F1F1F))
-            }
-          }
-        }
-
-        // Right Main Content Area
-        if (currentScreen == AppScreen.HOME_NOTES) {
-          LaunchedEffect(notesList.size) { visibleNoteIds = notesList.map { it.id } }
-          Box(
-            modifier = Modifier
-              .weight(1f)
-              .fillMaxHeight()
-              .clip(RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
-              .background(Color(0xFFF5F5F5))
-          ) {
-            Column(
-              modifier = Modifier
-                .fillMaxSize()
-                .padding(if (selectionMode) 0.dp else 24.dp)
-            ) {
-              if (selectionMode) {
-                MyScriptSelectionTopBar(count = selectedNoteIds.size, actions = selectionActions)
-              } else {
-                // Top-right 3 dots: Select / Import
-                var m3eHomeMenu by remember { mutableStateOf(false) }
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  horizontalArrangement = Arrangement.End
-                ) {
-                  Box {
-                    Box(
-                      contentAlignment = Alignment.Center,
-                      modifier = Modifier.size(40.dp).clip(CircleShape).clickable { m3eHomeMenu = true }
-                    ) { MyScriptIcons.MoreVerticalDots(Color(0xFF1F1F1F), 20.dp) }
-                    UiMenu(expanded = m3eHomeMenu, onDismissRequest = { m3eHomeMenu = false }) {
-                      UiMenuItem(
-                        text = { Text("Select") },
-                        onClick = { m3eHomeMenu = false; selectionMode = true }
-                      )
-                      UiMenuItem(
-                        text = { Text("Import (Samsung Notes, .iink, PDF, PNG)") },
-                        onClick = { m3eHomeMenu = false; launchImport() }
-                      )
-                      HorizontalDivider()
-                      UiMenuItem(
-                        text = { Text("Switch to One UI 9 design") },
-                        onClick = { m3eHomeMenu = false; settings.uiStyle = UiStyleMode.ONEUI_9 }
-                      )
-                    }
-                  }
-                }
-              }
-
-              Spacer(modifier = Modifier.height(16.dp))
-
-              // Grid of Square Note Thumbnails (Exact match to real_myscript_notes_home.png)
-              LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 140.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
-                modifier = Modifier
-                  .weight(1f)
-                  .padding(horizontal = if (selectionMode) 24.dp else 0.dp)
-              ) {
-                items(notesList, key = { it.id }) { note ->
-                  val df = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.ENGLISH) }
-                  val isSelected = note.id in selectedNoteIds
-                  Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.combinedClickable(
-                      onClick = { if (selectionMode) toggleSelect(note) else switchToNote(note) },
-                      onLongClick = { toggleSelect(note) }
-                    )
-                  ) {
-                    // Square 108dp x 108dp white thumbnail card with mini rendered strokes
-                    Surface(
-                      shape = RoundedCornerShape(18.dp),
-                      color = if (isSelected) Color(0xFFFCE8E6) else Color.White,
-                      shadowElevation = 2.dp,
-                      modifier = Modifier.size(108.dp)
-                    ) {
-                      Box(Modifier.fillMaxSize()) {
-                      note.backgroundImagePath?.let { NoteBackgroundThumb(it, Modifier.fillMaxSize().padding(8.dp)) }
-                      Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-                        if (note.strokes.isNotEmpty()) {
-                          val minX = note.strokes.flatMap { it.points }.minOfOrNull { it.x } ?: 0f
-                          val maxX = note.strokes.flatMap { it.points }.maxOfOrNull { it.x } ?: 1f
-                          val minY = note.strokes.flatMap { it.points }.minOfOrNull { it.y } ?: 0f
-                          val maxY = note.strokes.flatMap { it.points }.maxOfOrNull { it.y } ?: 1f
-                          val spanX = (maxX - minX).coerceAtLeast(60f)
-                          val spanY = (maxY - minY).coerceAtLeast(60f)
-                          val sc = min(size.width / spanX, size.height / spanY) * 0.85f
-                          val offX = (size.width - spanX * sc) / 2f
-                          val offY = (size.height - spanY * sc) / 2f
-                          for (s in note.strokes) {
-                            val pts = s.points
-                            if (pts.size > 1) {
-                              val p = Path().apply {
-                                moveTo(offX + (pts[0].x - minX) * sc, offY + (pts[0].y - minY) * sc)
-                                for (i in 1 until pts.size) {
-                                  lineTo(offX + (pts[i].x - minX) * sc, offY + (pts[i].y - minY) * sc)
-                                }
-                              }
-                              drawPath(p, Color(0xFF1A1A1A), style = Stroke(2.2f, cap = StrokeCap.Round))
-                            }
-                          }
-                        }
-                      }
-                      if (isSelected) {
-                        SelectedCheckBadge(
-                          color = Color(0xFFEA5244),
-                          modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
-                        )
-                      }
-                      } // end thumbnail Box
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                      text = note.title,
-                      fontSize = 14.sp,
-                      fontWeight = FontWeight.Normal,
-                      color = Color(0xFF1F1F1F),
-                      maxLines = 1,
-                      overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                      text = df.format(Date(note.updatedAt)),
-                      fontSize = 11.sp,
-                      color = Color(0xFF8E8E8E)
-                    )
-                  }
-                }
-              }
-            }
-
-            // Bottom-Right Coral-Red Rounded Square "+" FAB (Exact match to real_myscript_notes_home.png)
-            if (!selectionMode) Surface(
-              shape = RoundedCornerShape(16.dp),
-              color = Color(0xFFEA5244),
-              shadowElevation = 6.dp,
-              modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 24.dp, bottom = 24.dp)
-                .size(54.dp)
-                .semantics { contentDescription = "New note" }
-                .clickable {
-                  val newNote = NotesRepository.createBlankNote(currentFolderId, settings.defaultPaper)
-                  notesList.add(0, newNote)
-                  NotesRepository.saveNote(context, newNote)
-                  switchToNote(newNote)
-                }
-            ) {
-              Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                MyScriptIcons.Plus(color = Color.White, size = 24.dp)
-              }
-            }
-          }
-        } else {
-          // =========================================================================
-          // SCREEN 5: EXACT MYSCRIPT "Quick LaTeX" SCREEN (Matches real_myscript_quick_latex.png)
-          // =========================================================================
-          QuickLatexPad(
-            penOnly = disableFingerWriting,
-            recognize = { recognizeInk(it) },
-            onCopyLatex = { copyLatex(it) },
-            onOpenAsNote = { ink, latex -> openInkAsNote(ink, latex) },
-            modifier = Modifier.weight(1f).fillMaxHeight()
-          )
-        }
-      }
-      } // end else (M3E Home Notes & Quick LaTeX)
       }
     }
 
@@ -3436,238 +3190,120 @@ fun MyScriptExactReplicaApp() {
     }
   }
 
-  // Keyboard tool: type the maths instead of writing it
-  if (showTypeMaths) {
-    var typed by remember { mutableStateOf(recognizedLatex) }
-    fun solveTyped() {
-      showTypeMaths = false
-      if (typed.isNotBlank()) {
-        recognizedLatex = typed.trim()
-        symbolicSolution = SymbolicStepEngine.solveFromLatex(recognizedLatex)
-        showStepByStepCard = true
-        persistCurrentNote()
-      }
-    }
-    OneUiDialog(
-      title = "Type maths",
-      onDismiss = { showTypeMaths = false },
-      actions = listOf("Cancel" to { showTypeMaths = false }, "Solve" to { solveTyped() })
-    ) {
-      Text("Type an expression or equation in LaTeX or plain text, for example x^2-4=0 or \\int x e^x dx.", fontSize = 14.sp, color = EditorChrome.secondaryText)
-      Spacer(Modifier.height(12.dp))
-      OutlinedTextField(
-        value = typed,
-        onValueChange = { typed = it },
-        singleLine = true,
-        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 18.sp, fontFamily = FontFamily.Monospace),
-        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { solveTyped() }),
-        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
-        modifier = Modifier.fillMaxWidth()
-      )
-    }
-  }
-
-  // Handwriting help / S Pen to text
-  inkTextResult?.let { (title, latex) ->
-    val readable = remember(latex) { NanoText.latexToText(latex) }
-    val isHelp = title == "Handwriting help"
-    OneUiDialog(
-      title = title,
-      onDismiss = { inkTextResult = null },
-      actions = listOf(
-        "Copy" to { copyLatex(if (isHelp) latex else readable); inkTextResult = null },
-        "Solve" to { inkTextResult = null; recognizedLatex = latex; symbolicSolution = SymbolicStepEngine.solveFromLatex(latex); showStepByStepCard = true; persistCurrentNote() },
-        "Close" to { inkTextResult = null }
-      )
-    ) {
-      Text(if (isHelp) "Your handwriting reads as:" else "Converted to text:", fontSize = 14.sp, color = EditorChrome.secondaryText)
-      Spacer(Modifier.height(10.dp))
-      Text(readable, fontSize = 24.sp, fontFamily = FontFamily.Serif, color = EditorChrome.text)
-      Spacer(Modifier.height(8.dp))
-      Text(latex, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = EditorChrome.secondaryText)
-      if (isHelp) {
-        Spacer(Modifier.height(10.dp))
-        Text("If a symbol is wrong, write it again more clearly, or use the Keyboard tool to type it.", fontSize = 13.sp, color = EditorChrome.secondaryText)
-      }
-    }
-  }
-
-  // This phone as the toolbar of a tablet / Googlebook
-  if (showPhoneToolbar) {
-    androidx.compose.ui.window.Dialog(
-      onDismissRequest = { RemoteToolbarLink.stop(); showPhoneToolbar = false },
-      properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
-    ) {
-      // Status bar icons readable over the toolbar (dark icons on the light toolbar, light on dark)
-      val toolbarDark = RemoteToolbarLink.remoteState?.dark == true
-      val dialogView = androidx.compose.ui.platform.LocalView.current
-      SideEffect {
-        (dialogView.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window?.let { w ->
-          androidx.core.view.WindowCompat.getInsetsController(w, dialogView).isAppearanceLightStatusBars = !toolbarDark
-        }
-      }
-      PhoneToolbarScreen(
-        // Closing ends the link (the tablet sees it), instead of hiding the toolbar while still connected.
-        // The phone listens again the next time the app is opened.
-        onClose = { RemoteToolbarLink.closeFromToolbar(); showPhoneToolbar = false },
-        customColors = settings.customColors,
-        onAddCustomColor = { settings.addCustomColor(it) }
-      )
-    }
-  }
-
-  // Customise toolbar (full screen, like Samsung Notes)
-  if (showCustomiseToolbar) {
-    androidx.compose.ui.window.Dialog(
-      onDismissRequest = { showCustomiseToolbar = false },
-      properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
-    ) {
-      CustomiseToolbarScreen(
-        layout = settings.toolbar,
-        state = ToolbarState(selectedTool, selectedPenColor, selectedThickness, history.canUndo, history.canRedo, settings.autoShapes, canvasLocked),
-        onChange = { settings.toolbar = it },
-        onBack = { showCustomiseToolbar = false },
-        dock = settings.toolbarDock,
-        onDock = { settings.toolbarDock = it }
-      )
-    }
-  }
-
-  if (showPageStyleDialog) {
-    PageStyleDialog(
-      uiStyle = uiStyleMode,
-      paper = paperPattern,
-      isDefault = paperPattern == settings.defaultPaper,
-      onSelectPaper = {
-        paperPattern = it
-        persistCurrentNote()
-      },
-      onMakeDefault = { settings.defaultPaper = paperPattern },
-      onOpenSettings = {
-        showPageStyleDialog = false
-        persistCurrentNote()
-        openSettings(SettingsSection.APPEARANCE)
-      },
-      onClose = { showPageStyleDialog = false },
-      paperColor = paperColor,
-      onSelectColor = {
-        paperColor = it
-        persistCurrentNote()
-      },
-      hasBackground = noteBackgroundPath != null,
-      onPickBackground = { backgroundLauncher.launch(arrayOf("image/png", "image/jpeg", "image/webp", "application/pdf")) },
-      onRemoveBackground = {
-        noteBackgroundPath = null
-        persistCurrentNote()
-      }
-    )
-  }
-
-  // ===================== Selection-mode dialogs =====================
-  if (showExportDialog) {
-    ExportFormatDialog(
-      count = selectedNoteIds.size,
-      onPick = { format ->
-        showExportDialog = false
-        if (selectedNoteIds.contains(currentNoteId)) persistCurrentNote()
-        val notes = selectedNotes()
-        if (notes.isNotEmpty()) {
-          pendingExport = notes to format
-          exportLauncher.launch(
-            NoteImportExport.suggestedFileName(notes, format) to NoteImportExport.mimeFor(notes, format)
-          )
-        }
-      },
-      onDismiss = { showExportDialog = false }
-    )
-  }
-
-  if (showMoveDialog) {
-    MoveToFolderDialog(
-      folders = foldersList,
-      onPick = { folderId ->
-        showMoveDialog = false
-        updateNotes(selectedNoteIds) { it.copy(folderId = folderId) }
-        exitSelection()
-      },
-      onDismiss = { showMoveDialog = false }
-    )
-  }
-
-  if (showRenameSelectedDialog) {
-    val target = selectedNotes().firstOrNull()
-    if (target == null) {
-      showRenameSelectedDialog = false
-    } else {
-      RenameNoteDialog(
-        initial = target.title,
-        onSave = { newTitle ->
-          showRenameSelectedDialog = false
-          updateNotes(listOf(target.id)) { it.copy(title = newTitle, updatedAt = System.currentTimeMillis()) }
-          exitSelection()
-        },
-        onDismiss = { showRenameSelectedDialog = false }
-      )
-    }
-  }
-
-  if (showDeleteSelectedDialog) {
-    ConfirmDeleteNotesDialog(
-      count = selectedNoteIds.size,
-      onConfirm = {
-        showDeleteSelectedDialog = false
-        val ids = selectedNoteIds.toSet()
-        // To the bin (30 days), not gone: the open note's latest ink first
-        if (currentNoteId in ids) persistCurrentNote()
-        notesList.filter { it.id in ids }.forEach { NoteBin.moveToBin(context, it) }
-        notesList.removeAll { it.id in ids }
-        refreshBin()
-        // With backup on, tell Drive now (so other devices bin it too and it leaves this device)
-        if (settings.driveBackup && account != null) syncNow()
-        if (notesList.isEmpty()) {
-          val blank = NotesRepository.createBlankNote()
-          NotesRepository.saveNote(context, blank)
-          notesList.add(blank)
-        }
-        if (currentNoteId in ids) {
-          // Load another note WITHOUT persisting the deleted one back to disk
-          switchToNote(notesList.first(), persistPrevious = false, openEditor = false)
-        }
-        exitSelection()
-      },
-      onDismiss = { showDeleteSelectedDialog = false }
-    )
-  }
-
-  // Rename Note Dialog
-  if (showRenameDialog) {
-    var tempTitle by remember { mutableStateOf(noteTitle) }
-    UiAlertDialog(
-      onDismissRequest = { showRenameDialog = false },
-      title = { Text("Rename note") },
-      text = {
-        OutlinedTextField(
-          value = tempTitle,
-          onValueChange = { tempTitle = it },
-          singleLine = true
+  EditorDialogs(
+    showTypeMaths = showTypeMaths,
+    recognizedLatex = recognizedLatex,
+    onDismissTypeMaths = { showTypeMaths = false },
+    onSolveTyped = { typed ->
+      recognizedLatex = typed
+      symbolicSolution = SymbolicStepEngine.solveFromLatex(recognizedLatex)
+      showStepByStepCard = true
+      persistCurrentNote()
+    },
+    inkTextResult = inkTextResult,
+    onDismissInkText = { inkTextResult = null },
+    onCopyText = { copyLatex(it) },
+    onSolveInkLatex = { latex ->
+      recognizedLatex = latex
+      symbolicSolution = SymbolicStepEngine.solveFromLatex(latex)
+      showStepByStepCard = true
+      persistCurrentNote()
+    },
+    showPhoneToolbar = showPhoneToolbar,
+    onDismissPhoneToolbar = { showPhoneToolbar = false },
+    customColors = settings.customColors,
+    onAddCustomColor = { settings.addCustomColor(it) },
+    showCustomiseToolbar = showCustomiseToolbar,
+    onDismissCustomiseToolbar = { showCustomiseToolbar = false },
+    toolbarLayout = settings.toolbar,
+    toolbarState = ToolbarState(selectedTool, selectedPenColor, selectedThickness, history.canUndo, history.canRedo, settings.autoShapes, canvasLocked),
+    onToolbarLayoutChange = { settings.toolbar = it },
+    toolbarDock = settings.toolbarDock,
+    onToolbarDockChange = { settings.toolbarDock = it },
+    showPageStyleDialog = showPageStyleDialog,
+    onDismissPageStyle = { showPageStyleDialog = false },
+    uiStyleMode = uiStyleMode,
+    paperPattern = paperPattern,
+    defaultPaper = settings.defaultPaper,
+    onSelectPaper = {
+      paperPattern = it
+      persistCurrentNote()
+    },
+    onMakeDefaultPaper = { settings.defaultPaper = paperPattern },
+    onOpenAppearanceSettings = {
+      showPageStyleDialog = false
+      persistCurrentNote()
+      openSettings(SettingsSection.APPEARANCE)
+    },
+    paperColor = paperColor,
+    onSelectPaperColor = {
+      paperColor = it
+      persistCurrentNote()
+    },
+    hasBackground = noteBackgroundPath != null,
+    onPickBackground = { backgroundLauncher.launch(arrayOf("image/png", "image/jpeg", "image/webp", "application/pdf")) },
+    onRemoveBackground = {
+      noteBackgroundPath = null
+      persistCurrentNote()
+    },
+    showExportDialog = showExportDialog,
+    onDismissExport = { showExportDialog = false },
+    selectedCount = selectedNoteIds.size,
+    onPickExportFormat = { format ->
+      showExportDialog = false
+      if (selectedNoteIds.contains(currentNoteId)) persistCurrentNote()
+      val notes = selectedNotes()
+      if (notes.isNotEmpty()) {
+        pendingExport = notes to format
+        exportLauncher.launch(
+          NoteImportExport.suggestedFileName(notes, format) to NoteImportExport.mimeFor(notes, format)
         )
-      },
-      confirmButton = {
-        TextButton(onClick = {
-          noteTitle = tempTitle.ifBlank { "Untitled" }
-          persistCurrentNote()
-          showRenameDialog = false
-        }) {
-          Text("Save")
-        }
-      },
-      dismissButton = {
-        TextButton(onClick = { showRenameDialog = false }) {
-          Text("Cancel")
-        }
       }
-    )
-  }
+    },
+    showMoveDialog = showMoveDialog,
+    onDismissMove = { showMoveDialog = false },
+    folders = foldersList,
+    onPickMoveFolder = { folderId ->
+      showMoveDialog = false
+      updateNotes(selectedNoteIds) { it.copy(folderId = folderId) }
+      exitSelection()
+    },
+    showRenameSelectedDialog = showRenameSelectedDialog,
+    onDismissRenameSelected = { showRenameSelectedDialog = false },
+    renameSelectedTarget = if (showRenameSelectedDialog) selectedNotes().firstOrNull() else null,
+    onRenameSelected = { target, newTitle ->
+      showRenameSelectedDialog = false
+      updateNotes(listOf(target.id)) { it.copy(title = newTitle, updatedAt = System.currentTimeMillis()) }
+      exitSelection()
+    },
+    showDeleteSelectedDialog = showDeleteSelectedDialog,
+    onDismissDeleteSelected = { showDeleteSelectedDialog = false },
+    onConfirmDeleteSelected = {
+      showDeleteSelectedDialog = false
+      val ids = selectedNoteIds.toSet()
+      if (currentNoteId in ids) persistCurrentNote()
+      notesList.filter { it.id in ids }.forEach { NoteBin.moveToBin(context, it) }
+      notesList.removeAll { it.id in ids }
+      refreshBin()
+      if (settings.driveBackup && account != null) syncNow()
+      if (notesList.isEmpty()) {
+        val blank = NotesRepository.createBlankNote()
+        NotesRepository.saveNote(context, blank)
+        notesList.add(blank)
+      }
+      if (currentNoteId in ids) {
+        switchToNote(notesList.first(), persistPrevious = false, openEditor = false)
+      }
+      exitSelection()
+    },
+    showRenameDialog = showRenameDialog,
+    onDismissRename = { showRenameDialog = false },
+    noteTitle = noteTitle,
+    onSaveNoteTitle = { newTitle ->
+      noteTitle = newTitle
+      persistCurrentNote()
+    }
+  )
 }
 
 /**

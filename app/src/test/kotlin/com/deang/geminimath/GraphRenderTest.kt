@@ -41,4 +41,29 @@ class GraphRenderTest {
     assertEquals(-12.0, p.xMin, 1e-5)
     assertTrue(GraphRender.niceStep(20.0) in listOf(2.0, 5.0))
   }
+
+  @Test fun multiCurveSplitAndSpecialPoints() {
+    val expr = "x^2 - 4; x + 2"
+    val parts = GraphRender.splitExpressions(expr)
+    assertEquals(listOf("x^2 - 4", "x + 2"), parts)
+    assertEquals(2, GraphRender.curvesFor(expr).size)
+
+    val win = GraphWindow(-5.0, 5.0, -6.0, 10.0)
+    val pts = GraphRender.specialPoints(expr, win)
+
+    // Parabola x^2 - 4 has roots at -2 and 2, minimum at (0, -4), and intersections with x+2 at (-2,0) & (3,5)
+    assertTrue("Expected Min at (0, -4) in $pts", pts.any { it.kind == "Min" && kotlin.math.abs(it.x) < 1e-3 && kotlin.math.abs(it.y + 4.0) < 1e-3 })
+    assertTrue("Expected Root at x=2 in $pts", pts.any { it.kind == "Root" && kotlin.math.abs(it.x - 2.0) < 1e-3 })
+    assertTrue("Expected Intersection at (3, 5) in $pts", pts.any { it.kind == "Intersection" && kotlin.math.abs(it.x - 3.0) < 1e-3 && kotlin.math.abs(it.y - 5.0) < 1e-3 })
+
+    // snapTrace near x=2.05 should snap onto the Root at x=2.0
+    val snapped = GraphRender.snapTrace("x^2 - 4", 2.05, win)
+    assertNotNull(snapped)
+    assertEquals("Root", snapped!!.kind)
+    assertEquals(2.0, snapped.x, 1e-3)
+
+    // Multi-curve autoWindow fits both expressions
+    val auto = GraphRender.autoWindow("x^2 - 4; x + 2")
+    assertTrue(auto.yMin <= -4.0 && auto.yMax >= 4.0)
+  }
 }

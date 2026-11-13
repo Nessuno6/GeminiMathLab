@@ -76,9 +76,11 @@ object NoteHandoff {
     if (payload != null) {
       val incoming = runCatching { decode(payload) }.getOrNull()
       if (incoming != null && incoming.id == id) {
-        // A page image is a file on the other device; it doesn't come across
-        val bg = incoming.backgroundImagePath?.takeIf { File(it).exists() }
-        if (incoming.backgroundImagePath != null && bg == null) {
+        // Page images are files on the other device; only ones already here are kept
+        val allPages = BackgroundPages.paths(incoming.backgroundImagePath)
+        val kept = allPages.filter { File(it).exists() }
+        val bg = BackgroundPages.join(kept)
+        if (kept.size < allPages.size) {
           pendingMessage = "The page image stayed on the other device."
         }
         if (local == null || incoming.updatedAt >= local.updatedAt) {

@@ -25,17 +25,24 @@ the app and keeps your notes.
 
 **Solving**
 - **Solve:** reads the line you wrote last, or what you circle with the lasso, and solves it step by
-  step: equations, inequalities, integrals, limits, sums, functions and piecewise functions.
+  step: equations, inequalities, $2\times 2$ and $3\times 3$ systems of equations, matrices and
+  determinants (transpose, inverse, trace, powers, $2\times 2$ eigenvalues, matrix arithmetic),
+  first-order differential equations, integrals (including explicit partial fractions), limits, sums,
+  functions and piecewise functions.
+- **2D typeset steps:** solution cards and the AI assistant render stacked fractions, radicals with
+  overbars, superscripts/subscripts, integral/limit bounds, and 2D matrices natively in Compose.
 - **Solve when you write =:** the answer appears when you finish a line with an equals sign.
-- **Graphs:** circle a function and tap Graph to put its graph next to it. There's also a graphing
-  calculator with a maths keyboard.
+- **Graphs:** circle a function and tap Graph to plot single or `;`-separated multi-curve functions
+  with notable-point markers (roots, extrema, y-intercepts, intersections) and an interactive drag
+  crosshair that snaps to key points. There's also a graphing calculator with a maths keyboard.
 - **Quick LaTeX Pad:** write a formula and copy it as LaTeX.
-- Handwriting recognition (Pix2Text-MFR on ONNX Runtime) and the solver run on the device.
+- Handwriting recognition (Pix2Text-MFR on ONNX Runtime with XNNPACK acceleration and buffer
+  reuse) and the symbolic solver run on the device.
 
 **Writing**
-- An infinite page with pinch zoom, and Samsung Notes' tools: pens (fountain, calligraphy, pen, pencil,
-  brush), highlighter, stroke and area eraser, lasso, tape, laser pointer (with a rainbow option),
-  shapes, fill and layers.
+- An infinite page with pinch zoom, spatially bucketed GPU ink caching with viewport culling, and
+  Samsung Notes' tools: pens (fountain, calligraphy, pen, pencil, brush), highlighter, stroke and
+  area eraser, lasso, tape, laser pointer (with a rainbow option), shapes, fill and layers.
 - **Hold to shape:** keep the pen still at the end of a stroke and a rough line, triangle, rectangle,
   polygon or circle becomes a neat one.
 - **Lasso:** move, resize, rotate and stretch a selection; change its style; convert it to text or
@@ -43,10 +50,12 @@ the app and keeps your notes.
 - Stroke stabiliser, smoothed ink and pen-position prediction for low latency.
 - **Explain with Gemini Nano:** on supported Galaxy devices, Gemini Nano explains a solution in
   words, offline.
-- Pictures, PDF and picture backgrounds, and many paper styles.
+- Pictures, multi-page PDF and image backgrounds, and many paper styles.
 
 **Notes**
-- Import Samsung Notes (`.sdocx`), `.iink`, PDF and pictures; export to `.gmnote`, PDF, SVG and PNG.
+- Import Samsung Notes (`.sdocx`), `.iink`, multi-page PDFs (stacked vertically with lazy off-thread
+  page decoding and a floating page jumper) and pictures; export to `.gmnote`, PDF, SVG and PNG.
+- Fast startup with `.meta` note summaries, on-demand stroke hydration, and cached PNG thumbnails.
 - Google Drive backup that keeps notes in sync across your devices, and a Bin for deleted notes.
 - Use a phone as the toolbar of a tablet (Nearby Connections), and continue a note on another device
   with Android Handoff.
@@ -71,7 +80,9 @@ Requirements: JDK 17 or newer and the Android SDK (compile SDK 37).
 ./gradlew :app:testDebugUnitTest
 ```
 
-The debug APK is in `app/build/outputs/apk/debug/`.
+The debug APK is in `app/build/outputs/apk/debug/`. Release builds use R8 code and resource shrinking
+(`app/proguard-rules.pro`), and GitHub Actions CI (`.github/workflows/ci.yml`) runs unit tests and
+debug builds on pushes and pull requests targeting `main`.
 
 ### Releases
 

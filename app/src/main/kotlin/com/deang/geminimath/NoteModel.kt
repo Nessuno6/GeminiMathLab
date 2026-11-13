@@ -117,8 +117,26 @@ data class InkStroke(
   val isInk: Boolean get() = !isHighlighter && !isTape && fill == null && picture == null
 }
 
-/** A filled region: a w × h coverage mask (1 byte per pixel, 0 or 255) stretched over its bounds. */
-class FillMask(val w: Int, val h: Int, val mask: ByteArray) {
+/**
+ * A filled region: a w × h coverage mask (1 byte per pixel, 0 or 255) stretched over its bounds.
+ * Supports lazy decoding from its compressed Base64 string and caches the encoded string so
+ * saving a note doesn't re-compress unchanged fills on every stroke.
+ */
+class FillMask private constructor(
+  val w: Int,
+  val h: Int,
+  private var decodedMask: ByteArray?,
+  private var encodedMask: String?
+) {
+  constructor(w: Int, h: Int, mask: ByteArray) : this(w, h, mask, null)
+  constructor(w: Int, h: Int, encoded: String) : this(w, h, null, encoded)
+
+  val mask: ByteArray
+    @Synchronized get() = decodedMask ?: FillCodec.decode(encodedMask ?: "").also { decodedMask = it }
+
+  val encoded: String
+    @Synchronized get() = encodedMask ?: FillCodec.encode(mask).also { encodedMask = it }
+
   /** Decoded image for drawing, made on first use. */
   @Volatile var image: androidx.compose.ui.graphics.ImageBitmap? = null
 

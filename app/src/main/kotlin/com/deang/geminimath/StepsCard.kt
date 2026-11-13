@@ -173,11 +173,10 @@ fun AuthenticMyScriptSolutionStepsCard(
 
           if (expanded) {
             Spacer(modifier = Modifier.height(6.dp))
-            Text(
+            TypesetMathText(
               text = cleanStep,
               color = Color.White,
-              fontSize = 13.sp,
-              lineHeight = 18.sp
+              fontSize = 13.sp
             )
           }
         }
@@ -199,11 +198,10 @@ fun AuthenticMyScriptSolutionStepsCard(
             fontWeight = FontWeight.Bold
           )
           Spacer(modifier = Modifier.height(4.dp))
-          Text(
+          TypesetMathText(
             text = nanoExplanation,
             color = Color.White,
-            fontSize = 12.sp,
-            lineHeight = 17.sp
+            fontSize = 12.sp
           )
         }
         HorizontalDivider(color = Color(0xFF565656), thickness = 1.dp)
@@ -233,7 +231,7 @@ fun AuthenticMyScriptSolutionStepsCard(
 
         if (isFinalAnswerExpanded) {
           Spacer(modifier = Modifier.height(8.dp))
-          Text(
+          TypesetMathText(
             text = symbolicSolution.finalAnswer,
             color = Color.White,
             fontFamily = FontFamily.Serif,

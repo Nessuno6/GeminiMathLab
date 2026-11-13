@@ -74,6 +74,8 @@ object SymbolicStepEngine {
     val unwrapped = unwrapFonts(fixOcrNotation(LocalMathEngine.cleanLatexSpacing(rawLatex)))
     // Piecewise functions keep their rows, so read them before the layout is stripped
     Piecewise.parse(unwrapped)?.let { return piecewise(it, t0) }
+    // Matrices, determinants, systems of equations, and 1st-order differential equations
+    LinearAlgebraAndSystems.trySolve(unwrapped, t0)?.let { return it }
     val raw = stripLayout(unwrapped)
     if (raw.isBlank()) return waiting()
     // The OCR often writes a product sign before the differential ("… \cdot dx"): drop it

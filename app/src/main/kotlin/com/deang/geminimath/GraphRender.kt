@@ -7,6 +7,7 @@ import android.graphics.Path
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.hypot
 import kotlin.math.log10
 import kotlin.math.pow
 
@@ -48,6 +49,141 @@ object GraphRender {
     0xFF6042A6.toInt(), 0xFFFA7E19.toInt(), 0xFF000000.toInt()
   )
 
+  data class SpecialPoint(val x: Double, val y: Double, val kind: String, val curveIndex: Int = 0)
+
+  /** Splits a multi-curve expression ("f(x);g(x)"), keeping Piecewise expressions intact. */
+  fun splitExpressions(expr: String): List<String> =
+    if (expr.startsWith(Piecewise.PREFIX)) listOf(expr)
+    else expr.split(';').map { it.trim() }.filter { it.isNotEmpty() }
+
+  /** Builds [GraphCurve]s for single or multi-curve (`;`-separated) expressions. */
+  fun curvesFor(expr: String, primaryArgb: Int = CurveColors[1]): List<GraphCurve> =
+    splitExpressions(expr).mapIndexed { i, e ->
+      GraphCurve(e, if (i == 0) primaryArgb else CurveColors[(i + 2) % CurveColors.size])
+    }
+
+  /**
+   * Finds notable points on [expr] within [win]: roots, local extrema, y-intercept,
+   * and curve-to-curve intersections when multiple functions are plotted.
+   */
+  fun specialPoints(expr: String, win: GraphWindow): List<SpecialPoint> {
+    val exprs = splitExpressions(expr)
+    if (exprs.isEmpty()) return emptyList()
+    val pts = ArrayList<SpecialPoint>()
+    val deg = MathSettings.angleDegrees
+
+    fun addUnique(p: SpecialPoint) {
+      val rx = if (abs(p.x) < 1e-7) 0.0 else p.x
+      val ry = if (abs(p.y) < 1e-7) 0.0 else p.y
+      if (!rx.isFinite() || !ry.isFinite()) return
+      if (rx < win.xMin || rx > win.xMax || ry < win.yMin || ry > win.yMax) return
+      if (pts.none { hypot(it.x - rx, it.y - ry) < win.width * 1e-3 }) {
+        pts += p.copy(x = rx, y = ry)
+      }
+    }
+
+    val steps = 240
+    for ((idx, e) in exprs.withIndex()) {
+      // y-intercept
+      if (0.0 in win.xMin..win.xMax) {
+        val y0 = LocalMathEngine.evalAt(e, 0.0, deg)
+        if (y0.isFinite()) addUnique(SpecialPoint(0.0, y0, if (abs(y0) < 1e-7) "Root" else "y-intercept", idx))
+      }
+      var px = win.xMin
+      var py = LocalMathEngine.evalAt(e, px, deg)
+      val h = (win.width / steps) * 0.25
+      var pd = (LocalMathEngine.evalAt(e, px + h, deg) - LocalMathEngine.evalAt(e, px - h, deg)) / (2 * h)
+      var pdX = px
+      for (i in 1..steps) {
+        val cx = win.xMin + win.width * i / steps
+        val cy = LocalMathEngine.evalAt(e, cx, deg)
+        val cd = (LocalMathEngine.evalAt(e, cx + h, deg) - LocalMathEngine.evalAt(e, cx - h, deg)) / (2 * h)
+        // Root check
+        if (py.isFinite() && cy.isFinite() && py * cy <= 0.0 && abs(cy - py) < win.height * 0.8) {
+          var lo = px; var hi = cx; var yLo = py
+          repeat(35) {
+            val mid = 0.5 * (lo + hi)
+            val ym = LocalMathEngine.evalAt(e, mid, deg)
+            if (yLo * ym <= 0.0) hi = mid else { lo = mid; yLo = ym }
+          }
+          val rx = 0.5 * (lo + hi)
+          val ry = LocalMathEngine.evalAt(e, rx, deg)
+          if (abs(ry) < 1e-3) addUnique(SpecialPoint(rx, 0.0, "Root", idx))
+        }
+        // Extremum check (derivative sign change; keep previous non-zero sample if derivative lands on 0)
+        if (pd.isFinite() && cd.isFinite() && pd * cd < 0.0 && abs(cy - py) < win.height * 0.5) {
+          var lo = pdX; var hi = cx; var dLo = pd
+          repeat(30) {
+            val mid = 0.5 * (lo + hi)
+            val dm = (LocalMathEngine.evalAt(e, mid + h, deg) - LocalMathEngine.evalAt(e, mid - h, deg)) / (2 * h)
+            if (dLo * dm <= 0.0) hi = mid else { lo = mid; dLo = dm }
+          }
+          val ex = 0.5 * (lo + hi)
+          val ey = LocalMathEngine.evalAt(e, ex, deg)
+          val kind = if (pd < 0 && cd > 0) "Min" else "Max"
+          val rx = if (abs(ex) < 1e-7) 0.0 else ex
+          val ry = if (abs(ey) < 1e-7) 0.0 else ey
+          pts.removeAll { it.kind == "y-intercept" && it.curveIndex == idx && hypot(it.x - rx, it.y - ry) < win.width * 1e-2 }
+          addUnique(SpecialPoint(ex, ey, kind, idx))
+        }
+        px = cx; py = cy
+        if (!cd.isFinite() || abs(cd) > 1e-9) { pd = cd; pdX = cx }
+      }
+    }
+
+    // Intersections between pairs of curves
+    if (exprs.size >= 2) {
+      for (i in 0 until exprs.size) {
+        for (j in i + 1 until exprs.size) {
+          val e1 = exprs[i]; val e2 = exprs[j]
+          var px = win.xMin
+          var pdiff = LocalMathEngine.evalAt(e1, px, deg) - LocalMathEngine.evalAt(e2, px, deg)
+          for (k in 1..steps) {
+            val cx = win.xMin + win.width * k / steps
+            val cdiff = LocalMathEngine.evalAt(e1, cx, deg) - LocalMathEngine.evalAt(e2, cx, deg)
+            if (pdiff.isFinite() && cdiff.isFinite() && pdiff * cdiff <= 0.0 && abs(cdiff - pdiff) < win.height) {
+              var lo = px; var hi = cx; var dLo = pdiff
+              repeat(35) {
+                val mid = 0.5 * (lo + hi)
+                val dm = LocalMathEngine.evalAt(e1, mid, deg) - LocalMathEngine.evalAt(e2, mid, deg)
+                if (dLo * dm <= 0.0) hi = mid else { lo = mid; dLo = dm }
+              }
+              val ix = 0.5 * (lo + hi)
+              val iy = LocalMathEngine.evalAt(e1, ix, deg)
+              val iy2 = LocalMathEngine.evalAt(e2, ix, deg)
+              if (abs(iy - iy2) < 1e-3) {
+                // Replace any overlapping point with Intersection
+                pts.removeAll { hypot(it.x - ix, it.y - iy) < win.width * 1e-2 }
+                pts += SpecialPoint(if (abs(ix) < 1e-7) 0.0 else ix, if (abs(iy) < 1e-7) 0.0 else iy, "Intersection", i)
+              }
+            }
+            px = cx; pdiff = cdiff
+          }
+        }
+      }
+    }
+
+    return pts
+  }
+
+  /**
+   * Evaluates [expr] at [targetX], snapping to the nearest [SpecialPoint] when within
+   * [snapFraction] of the window width.
+   */
+  fun snapTrace(expr: String, targetX: Double, win: GraphWindow, snapFraction: Double = 0.04): SpecialPoint? {
+    val exprs = splitExpressions(expr)
+    if (exprs.isEmpty()) return null
+    val specials = specialPoints(expr, win)
+    val snapRadius = win.width * snapFraction
+    val nearestSpecial = specials.minByOrNull { abs(it.x - targetX) }
+    if (nearestSpecial != null && abs(nearestSpecial.x - targetX) <= snapRadius) {
+      return nearestSpecial
+    }
+    val y = LocalMathEngine.evalAt(exprs[0], targetX, MathSettings.angleDegrees)
+    if (!y.isFinite()) return null
+    return SpecialPoint(targetX, y, "Point", 0)
+  }
+
   /** A tidy grid spacing (1, 2 or 5 × 10ⁿ) giving about [target] lines across [span]. */
   fun niceStep(span: Double, target: Int = 8): Double {
     val raw = span / target
@@ -63,15 +199,18 @@ object GraphRender {
   }
 
   /**
-   * Picks a window for one function: x from −10 to 10, y fitted to where the curve is
+   * Picks a window for one or more functions: x from −10 to 10, y fitted to where the curve(s) are
    * (ignoring the extremes, so asymptotes don't flatten everything).
    */
   fun autoWindow(expr: String, aspect: Double = 0.62): GraphWindow {
-    val all = (0..400).map { -10.0 + it * 0.05 }.map { it to LocalMathEngine.evalAt(expr, it) }
+    val exprs = splitExpressions(expr)
+    val all = exprs.flatMap { e ->
+      (0..400).map { -10.0 + it * 0.05 }.map { x -> x to LocalMathEngine.evalAt(e, x) }
+    }
     val defined = all.filter { it.second.isFinite() }
     if (defined.size < 10) return GraphWindow(-10.0, 10.0, -10 * aspect, 10 * aspect)
     // x: only where the function exists (√x starts at 0), with a little room either side
-    var x0 = defined.first().first; var x1 = defined.last().first
+    var x0 = defined.minOf { it.first }; var x1 = defined.maxOf { it.first }
     if (x1 - x0 < 2) { x0 -= 1; x1 += 1 }
     val padX = (x1 - x0) * 0.06
     x0 = if (x0 > -10 + 1e-9) x0 - padX else -10.0; x1 = if (x1 < 10 - 1e-9) x1 + padX else 10.0

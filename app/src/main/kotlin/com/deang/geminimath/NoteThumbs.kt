@@ -1,6 +1,8 @@
 package com.deang.geminimath
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Paint
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -10,27 +12,51 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * Note-card ink previews. Drawing every stroke of every note while the notes list appears made
  * that first frame slow, so each preview is rendered once into a bitmap on a background thread
- * and kept until the note changes.
+ * (and persisted to `cacheDir/note_thumbs` so lazy-loaded notes don't even need their strokes
+ * parsed on subsequent launches).
  */
 object NoteThumbCache {
   private val cache = object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) = size > 80
   }
 
-  fun key(note: MathNote, w: Int, h: Int) = "${note.id}:${note.updatedAt}:${note.strokes.size}:${w}x$h"
+  fun key(note: MathNote, w: Int, h: Int) = "${note.id}:${note.updatedAt}:${note.strokeCount}:${w}x$h"
+
+  private fun diskFile(context: Context, key: String): File {
+    val dir = File(context.cacheDir, "note_thumbs").apply { if (!exists()) mkdirs() }
+    val safe = key.replace(':', '_')
+    return File(dir, "$safe.png")
+  }
 
   @Synchronized fun peek(key: String): ImageBitmap? = cache[key]
   @Synchronized private fun put(key: String, bmp: ImageBitmap) { cache[key] = bmp }
 
+  /** Renders or loads from disk cache the note's ink fitted into w × h pixels. */
+  fun render(context: Context, note: MathNote, w: Int, h: Int, strokePx: Float): ImageBitmap {
+    val k = key(note, w, h)
+    peek(k)?.let { return it }
+    val file = diskFile(context, k)
+    if (file.exists()) {
+      runCatching { BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }.getOrNull()?.let {
+        put(k, it)
+        return it
+      }
+    }
+    val hydrated = NotesRepository.ensureStrokesLoaded(context, note)
+    return render(hydrated, w, h, strokePx, saveToFile = file)
+  }
+
   /** Renders the note's ink fitted into w × h pixels (same framing as before: centred, 16/40 px margins). */
-  fun render(note: MathNote, w: Int, h: Int, strokePx: Float): ImageBitmap {
+  fun render(note: MathNote, w: Int, h: Int, strokePx: Float, saveToFile: File? = null): ImageBitmap {
     val k = key(note, w, h)
     peek(k)?.let { return it }
     val bmp = Bitmap.createBitmap(w.coerceAtLeast(1), h.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
@@ -64,20 +90,24 @@ object NoteThumbCache {
         canvas.drawPath(path, paint)
       }
     }
+    if (saveToFile != null) {
+      runCatching { saveToFile.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 90, it) } }
+    }
     return bmp.asImageBitmap().also { put(k, it) }
   }
 }
 
 @Composable
 fun NoteInkThumb(note: MathNote, modifier: Modifier = Modifier) {
-  if (note.strokes.isEmpty()) return
+  if (note.strokeCount == 0) return
+  val context = LocalContext.current
   BoxWithConstraints(modifier) {
     val w = constraints.maxWidth
     val h = constraints.maxHeight
     val strokePx = with(LocalDensity.current) { androidx.compose.ui.unit.Dp(2.4f).toPx() }
     val key = NoteThumbCache.key(note, w, h)
     val bmp = produceState(initialValue = NoteThumbCache.peek(key), key) {
-      if (value == null) value = withContext(Dispatchers.Default) { NoteThumbCache.render(note, w, h, strokePx) }
+      if (value == null) value = withContext(Dispatchers.IO) { NoteThumbCache.render(context, note, w, h, strokePx) }
     }.value
     if (bmp != null) Image(bmp, contentDescription = null, modifier = Modifier.fillMaxSize())
   }
